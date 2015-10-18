@@ -21,14 +21,14 @@ def shuffle_dataframe(df, seed_row=None, seed_col=None):
         df (pandas.DataFrame): The data to shuffle.
         seed_row (int, optional, default=None):
         seed_col (int, optional, defualt=None):
-            Seeds for `numpy.random.RandomState` before shuffling the
+            Seeds for `numpy.random.seed` before shuffling the
             row/column. Set to an `int` for reproducibility.
     
     Returns:
         df_shuffled (pandas.DataFrame): A deep copy of the shuffled dataframe.
         
     See Also:
-        numpy.random.shuffle
+        pandas.DataFrame, numpy.random.shuffle, numpy.random.seed
     
     """
     # Check input.
