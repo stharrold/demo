@@ -13,4 +13,7 @@ sys.path.insert(0, '.') # Test the code in this repository.
 # Import local packages.
 import demo
 
-# TODO: test demo/utils.py
+
+def test_shuffle_dataframe(df):
+    r"""
+    """
