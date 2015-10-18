@@ -6,7 +6,7 @@ r"""Pytests for demo/main.py
 
 
 # Import standard packages.
-# For Python 2x backward compatibility.
+# Import __future__ for Python 2x backward compatibility.
 from __future__ import absolute_import, division, print_function
 import sys
 sys.path.insert(0, '.') # Test the code in this repository.
