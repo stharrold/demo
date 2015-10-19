@@ -8,12 +8,17 @@ r"""Utilities for predictive analytics demo.
 # Import standard packages.
 # Import __future__ for Python 2x backward compatibility.
 from __future__ import absolute_import, division, print_function
+import os
+import pdb
+import subprocess
 import time
 # Import installed packages.
-import matplotlib as plt
+from IPython.display import display, SVG
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import seaborn as sns
+import sklearn.cross_validation as sklearn_cval
 import sklearn.grid_search as sklearn_gs
 import sklearn.metrics as sklearn_met
 import sklearn.tree as sklearn_tree
@@ -40,17 +45,19 @@ def plot_feature_importances(model, train_features):
                ensemble.html#feature-importance-evaluation
     
     """
-    plt.title("Feature vs importance")
-    plt.xlabel("Importance (mean over all trees)")
-    plt.ylabel("Feature")
     df_importances = pd.DataFrame.from_records(
         data=zip(model.feature_importances_, train_features.columns),
         columns=['importance', 'feature'])
     df_importances.sort_values(
         by=['importance'], ascending=False, inplace=True)
+    fig = plt.figure()
+    ax = fig.add_subplot(111)
     sns.barplot(
         x='importance', y='feature', data=df_importances,
-        color=sns.color_palette()[0])
+        color=sns.color_palette()[0], ax=ax)
+    ax.set_title("Feature vs importance")
+    ax.set_xlabel("Importance (mean over all trees)")
+    ax.set_ylabel("Feature")
     plt.show()
     return None
 
@@ -90,7 +97,8 @@ def plot_residuals(y_pred, y_true, return_ax=False):
 
 def search_models(
     model, param_dists, train_features, train_pred, test_features,
-    n_iter=10, scoring='r2', cv=5, n_jobs=-1, file_path='', file_basename=''):
+    n_iter=10, scoring='r2', cv=5, n_jobs=-1, pred_column='prediction',
+    file_path='', file_basename=''):
     r"""Search hyper-parameters for best regression model and report.
     
     Args:
@@ -98,7 +106,7 @@ def search_models(
         param_dists (dict): Dictionary with keys as string parameter names
             and values as `scipy.stats` distributions [1]_ or lists.
         train_features (pandas.DataFrame): The data to be fit for training.
-        train_pred (pandas.DataFrame): The target relative to `train_features`
+        train_pred (pandas.Series): The target relative to `train_features`
             for regression.
         test_features (pandas.DataFrame): The data to be fit for testing
             as a final evaluation.
@@ -110,11 +118,16 @@ def search_models(
         cv (int, optional, default=5): Number of folds for K-fold cross-validation.
         n_jobs (int, optional, default=-1): The number of CPUs to use to do the
             computation. -1 is all CPUs.
+        pred_column (str, optional, default='prediction'): Name for output
+            prediction column in CSV.
         file_path (str, optional, default=''): Path for generated files.
         file_basename (str, optional, default=''): Base name for generated files.
     
     Returns:
         None
+    
+    Raises:
+        ValueError
     
     See Also:
         sklearn.grid_search.RandomizedSearchCV
@@ -125,7 +138,13 @@ def search_models(
     
     """
     # TODO: move to demo/main.py as a top-level script.
-    # TODO: Check input.
+    # Check input.
+    if not isinstance(train_features, pd.DataFrame):
+        raise ValueError("`train_features` must be a `pandas.DataFrame`")
+    if not isinstance(train_pred, pd.Series):
+        raise ValueError("`train_pred` must be a `pandas.Series`")
+    if not isinstance(test_features, pd.DataFrame):
+        raise ValueError("`test_features` must be a `pandas.DataFrame`")
     # Search for best model and report.
     search = sklearn_gs.RandomizedSearchCV(
         estimator=model, param_distributions=param_dists,
@@ -167,7 +186,7 @@ def search_models(
     print("Predictions CSV file =\n{path}".format(path=path_csv))
     df_csv = pd.DataFrame(
         data=test_pred_best, index=test_features.index,
-        columns=train_pred.columns).sort_index()
+        columns=[pred_column]).sort_index()
     df_csv.to_csv(path_or_buf=path_csv, header=True, index=True, quoting=None)
     if hasattr(model_best.estimators_[0], 'tree_'):
         file_dot = r'graph_{name}.dot'.format(name=file_basename)
@@ -177,6 +196,7 @@ def search_models(
             decision_tree=model_best.estimators_[0], out_file=path_dot,
             feature_names=test_features.columns)
         cmd = ['dot', '-Tsvg', path_dot, '-O']
-        subprocess.run(args=cmd, check=True)
+        # Use pre-Python 3.5 subprocess API for backward compatibility.
+        subprocess.check_call(args=cmd)
         display(SVG(filename=path_dot+'.svg'))
     return None
