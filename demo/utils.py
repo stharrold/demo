@@ -52,18 +52,18 @@ def plot_feature_importances(model, train_features):
         by=['importance'], ascending=False, inplace=True)
     fig = plt.figure()
     ax = fig.add_subplot(111)
-    sns.barplot(
-        x='importance', y='feature', data=df_importances,
-        color=sns.color_palette()[0], ax=ax)
     ax.set_title("Feature vs importance")
     ax.set_xlabel("Importance (mean over all trees)")
     ax.set_ylabel("Feature")
+    sns.barplot(
+        x='importance', y='feature', data=df_importances,
+        color=sns.color_palette()[0], ax=ax)
     plt.show()
     return None
 
 
-def plot_residuals(y_pred, y_true, return_ax=False):
-    r"""Plot residuals from fit.
+def plot_actual_vs_predicted(y_pred, y_true, return_ax=False):
+    r"""Plot actual values vs predicted values from fit.
     
     Args:
         y_pred (pandas.DataFrame): The predicted target values.
@@ -79,14 +79,20 @@ def plot_residuals(y_pred, y_true, return_ax=False):
             Otherwise returns `None`.
     
     """
-    y_res = y_true - y_pred
+    # TODO: Plot binned percentiles; Q-Q plot
+    # TODO: Z1,Z2 gaussianity measures
     fig = plt.figure()
     ax = fig.add_subplot(111)
-    ax.set_title("Residual vs predicted values")
+    ax.set_title("Actual vs predicted values")
     ax.set_xlabel("Predicted values")
-    ax.set_ylabel("Residual values (true - predicted)")
-    ax.plot(y_pred, y_res, color=sns.color_palette()[0],
-        marker='.', linestyle='')
+    ax.set_ylabel("Actual values")
+    ax.plot(
+        y_pred, y_true, color=sns.color_palette()[0],
+        marker=',', linestyle='', alpha=0.5, label='(predicted, actual)')
+    ax.plot(
+        y_pred, y_pred, color=sns.color_palette()[1],
+        marker='', linestyle='-', linewidth=1, label='(predicted, predicted)')
+    ax.legend(loc='upper left', title='values')
     if return_ax:
         return_obj = ax
     else:
@@ -96,7 +102,7 @@ def plot_residuals(y_pred, y_true, return_ax=False):
 
 
 def search_models(
-    model, param_dists, train_features, train_pred, test_features,
+    model, param_dists, train_features, train_pred_true, test_features,
     n_iter=10, scoring='r2', cv=5, n_jobs=-1, pred_column='prediction',
     file_path='', file_basename=''):
     r"""Search hyper-parameters for best regression model and report.
@@ -106,7 +112,7 @@ def search_models(
         param_dists (dict): Dictionary with keys as string parameter names
             and values as `scipy.stats` distributions [1]_ or lists.
         train_features (pandas.DataFrame): The data to be fit for training.
-        train_pred (pandas.Series): The target relative to `train_features`
+        train_pred_true (pandas.Series): The target relative to `train_features`
             for regression.
         test_features (pandas.DataFrame): The data to be fit for testing
             as a final evaluation.
@@ -138,11 +144,13 @@ def search_models(
     
     """
     # TODO: move to demo/main.py as a top-level script.
+    # TODO: outliers by Bonferroni correcte p-values
+    # TODO: outliers by prediction distribution
     # Check input.
     if not isinstance(train_features, pd.DataFrame):
         raise ValueError("`train_features` must be a `pandas.DataFrame`")
-    if not isinstance(train_pred, pd.Series):
-        raise ValueError("`train_pred` must be a `pandas.Series`")
+    if not isinstance(train_pred_true, pd.Series):
+        raise ValueError("`train_pred_true` must be a `pandas.Series`")
     if not isinstance(test_features, pd.DataFrame):
         raise ValueError("`test_features` must be a `pandas.DataFrame`")
     # Search for best model and report.
@@ -150,7 +158,7 @@ def search_models(
         estimator=model, param_distributions=param_dists,
         n_iter=n_iter, scoring=scoring, n_jobs=n_jobs, cv=cv)
     time_start = time.time()
-    search.fit(X=train_features, y=train_pred)
+    search.fit(X=train_features, y=train_pred_true)
     time_stop = time.time()
     print(("Elapsed search time (seconds) = {elapsed:.1f}").format(
         elapsed=time_stop-time_start))
@@ -166,18 +174,20 @@ def search_models(
             mean=grid_best.mean_validation_score,
             std=np.std(grid_best.cv_validation_scores)))
     train_pred_best = sklearn_cval.cross_val_predict(
-        estimator=model_best, X=train_features, y=train_pred,
+        estimator=model_best, X=train_features, y=train_pred_true,
         cv=cv, n_jobs=n_jobs)
     print("Score from best model training predictions (R^2) = {score:.4f}".format(
-            score=sklearn_met.r2_score(y_true=train_pred, y_pred=train_pred_best)))
+            score=sklearn_met.r2_score(y_true=train_pred_true, y_pred=train_pred_best)))
     train_pred_default = sklearn_cval.cross_val_predict(
-        estimator=model, X=train_features, y=train_pred, cv=cv, n_jobs=n_jobs)
+        estimator=model, X=train_features, y=train_pred_true, cv=cv, n_jobs=n_jobs)
     print("Score from default model training predictions (R^2) = {score:.4f}".format(
-            score=sklearn_met.r2_score(y_true=train_pred, y_pred=train_pred_default)))
+            score=sklearn_met.r2_score(y_true=train_pred_true, y_pred=train_pred_default)))
     if hasattr(model_best, 'feature_importances_'):
-        print("Feature importances from best model:")
+        print("Plot feature importances from best model:")
         plot_feature_importances(
             model=model_best, train_features=train_features)
+    print("Plot actual vs predicted values from best model:")
+    plot_actual_vs_predicted(y_pred=train_pred_best, y_true=train_pred_true)
     # Create predictions for `test_features`.
     # Order by index, save as CSV, and graph.
     test_pred_best = model_best.predict(X=test_features)

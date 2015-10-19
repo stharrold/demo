@@ -17,5 +17,5 @@ import demo
 
 
 # TODO: def test_plot_feature_importances
-# TODO: def test_plot_residuals
+# TODO: def test_plot_actual_vs_predicted
 # TODO: def test_search_models
