@@ -33,3 +33,26 @@ def test_shuffle_dataframe(
         df=df, seed_row=seed_row, seed_col=seed_col)
     assert ref_df_shuffled.equals(test_df_shuffled)
     return None
+    
+    
+# TODO
+# def robust_cohen_d(arr1, arr2):
+#     r"""Calculate Cohen d statistic for two arrays using rank-based statistics.
+#     The Cohen d statistic is a measure of the size of an effect.
+#     Rank-based statistics are robust (more tolerant of) outliers.
+    
+#     Args:
+#         arr1 (numpy.ndarray):
+#         arr2 (numpy.ndarray):
+#             Arrays for the two data sets.
+    
+#     Returns:
+#         cohen_d (float)
+        
+#     Notes:
+#         * cohen_d = (mean(arr1) - mean(arr2)) / from Ch 2 [1]_.
+        
+#     References:
+#     .. [1] 
+    
+#     """

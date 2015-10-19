@@ -14,3 +14,8 @@ sys.path.insert(0, '.') # Test the code in this repository.
 
 # Import local packages.
 import demo
+
+
+# TODO: def test_plot_feature_importances
+# TODO: def test_plot_residuals
+# TODO: def test_search_models
