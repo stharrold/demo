@@ -62,12 +62,12 @@ def plot_feature_importances(model, train_features):
     return None
 
 
-def plot_actual_vs_predicted(y_pred, y_true, return_ax=False):
+def plot_actual_vs_predicted(y_true, y_pred, return_ax=False):
     r"""Plot actual values vs predicted values from fit.
     
     Args:
-        y_pred (pandas.DataFrame): The predicted target values.
         y_true (pandas.DataFrame): The true target values.
+        y_pred (pandas.DataFrame): The predicted target values.
         return_ax (bool, optional, default=False):
             If `False` (default), show the plot. Return `None`.
             If `True`, return a `matplotlib.axes` instance
@@ -81,16 +81,23 @@ def plot_actual_vs_predicted(y_pred, y_true, return_ax=False):
     """
     # TODO: Plot binned percentiles; Q-Q plot
     # TODO: Z1,Z2 gaussianity measures
+    # Check input.
+    # TODO: limit number of points to plot
     fig = plt.figure()
     ax = fig.add_subplot(111)
     ax.set_title("Actual vs predicted values")
     ax.set_xlabel("Predicted values")
     ax.set_ylabel("Actual values")
+    # TODO: Use hexbins for density.
+    #sns.jointplot(
+    #    x=y_pred, y=y_true, kind='hex', stat_func=None,
+    #    label='(predicted, actual)')
     ax.plot(
         y_pred, y_true, color=sns.color_palette()[0],
         marker=',', linestyle='', alpha=0.5, label='(predicted, actual)')
+    y_pred_extrema = [min(y_pred), max(y_pred)]
     ax.plot(
-        y_pred, y_pred, color=sns.color_palette()[1],
+        y_pred_extrema, y_pred_extrema, color=sns.color_palette()[1],
         marker='', linestyle='-', linewidth=1, label='(predicted, predicted)')
     ax.legend(loc='upper left', title='values')
     if return_ax:
@@ -187,7 +194,7 @@ def search_models(
         plot_feature_importances(
             model=model_best, train_features=train_features)
     print("Plot actual vs predicted values from best model:")
-    plot_actual_vs_predicted(y_pred=train_pred_best, y_true=train_pred_true)
+    plot_actual_vs_predicted(y_true=train_pred_true, y_pred=train_pred_best)
     # Create predictions for `test_features`.
     # Order by index, save as CSV, and graph.
     test_pred_best = model_best.predict(X=test_features)
