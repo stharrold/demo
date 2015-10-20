@@ -111,7 +111,7 @@ def plot_actual_vs_predicted(y_true, y_pred, return_ax=False):
 def search_models(
     model, param_dists, train_features, train_pred_true, test_features,
     n_iter=10, scoring='r2', cv=5, n_jobs=-1, pred_column='prediction',
-    file_path='', file_basename=''):
+    file_path='', file_basename='', show_svg=False):
     r"""Search hyper-parameters for best regression model and report.
     
     Args:
@@ -135,6 +135,7 @@ def search_models(
             prediction column in CSV.
         file_path (str, optional, default=''): Path for generated files.
         file_basename (str, optional, default=''): Base name for generated files.
+        show_svg (bool, optional, default=False): Show SVG plot.
     
     Returns:
         None
@@ -215,5 +216,6 @@ def search_models(
         cmd = ['dot', '-Tsvg', path_dot, '-O']
         # Use pre-Python 3.5 subprocess API for backward compatibility.
         subprocess.check_call(args=cmd)
-        display(SVG(filename=path_dot+'.svg'))
+        if show_svg:
+            display(SVG(filename=path_dot+'.svg'))
     return None
