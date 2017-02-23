@@ -1,12 +1,12 @@
 # demo
 
-Source code for predictive analytics demonstrations.
+Source code for application demos.
 
 Version numbers follow [Semantic Versioning v2.0.0](http://semver.org/spec/v2.0.0.html). (Version numbers have format `N.N.N[-X]`, where N are integer numbers and X is an optional label string. Git tags of versions have format `vN.N.N[-X]`.)
 
 ## Examples
 
-See IPython Notebooks in `demo/app_*/examples` directories for examples.
+See Jupyter Notebooks in `demo/app_*/examples` directories for examples.
 
 ## Installation
 
