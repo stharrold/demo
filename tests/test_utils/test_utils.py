@@ -1,18 +1,16 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-r"""Pytests for demo/utils.py
+r"""Pytests for demo/utils/utils.py
 
 """
 
 
 # Import standard packages.
-# Import __future__ for Python 2x backward compatibility.
-from __future__ import absolute_import, division, print_function
+import os
 import sys
-sys.path.insert(0, '.') # Test the code in this repository.
 # Import installed packages.
-
 # Import local packages.
+sys.path.insert(0, os.path.curdir)
 import demo
 
 

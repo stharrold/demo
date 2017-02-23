@@ -18,5 +18,5 @@ from demo.__init__ import __version__
 
 # Define package exports.
 __all__ = [
-	'utils',
-	'__version__']
+	'__version__',
+    'utils']
