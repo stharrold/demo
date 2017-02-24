@@ -80,10 +80,7 @@ def main(
         app_ret = demo.app_template.template.prepend_this(app_arg=app_arg)
         logger.info((here+": Returned value: {app_ret}").format(app_ret=app_ret))
     except:
-        logger.critical(
-            here+": Failed executing application.",
-            exc_info=True,
-            stack_info=True)
+        logger.critical(here+": Failed executing application.", exc_info=True)
     # Close log file.
     logger.info(here+": END_LOGGING")
     logger.removeHandler(handler_file)

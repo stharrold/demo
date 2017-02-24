@@ -6,7 +6,7 @@
 
 # Continuum IO's Anaconda Python 3:
 # https://hub.docker.com/r/continuumio/anaconda3/
-FROM continuumio/anaconda3:latest
+FROM continuumio/anaconda3:4.1.1
 
 # Update the Linux kernel and install other packages.
 RUN apt-get update -y && \
