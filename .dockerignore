@@ -1,0 +1,1 @@
+# Send contents of parent directory to docker daemon as docker context.

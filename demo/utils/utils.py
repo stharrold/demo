@@ -6,8 +6,6 @@ r"""Utilities for predictive analytics demo.
 
 
 # Import standard packages.
-# Import __future__ for Python 2x backward compatibility.
-from __future__ import absolute_import, division, print_function
 import os
 import pdb
 import subprocess
@@ -22,6 +20,12 @@ import sklearn.cross_validation as sklearn_cval
 import sklearn.grid_search as sklearn_gs
 import sklearn.metrics as sklearn_met
 import sklearn.tree as sklearn_tree
+
+
+__all__ = [
+    'plot_feature_importances',
+    'plot_actual_vs_predicted',
+    'search_models']
 
 
 def plot_feature_importances(model, train_features):
