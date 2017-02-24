@@ -58,3 +58,8 @@ target/
 
 # Jupyter notebooks
 .ipynb_checkpoints/
+
+###########
+
+# Data
+data/
