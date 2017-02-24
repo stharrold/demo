@@ -11,7 +11,7 @@ FROM continuumio/anaconda3:4.1.1
 # Update the Linux kernel and install other packages.
 RUN apt-get update -y && \
     apt-get install -y \
-        g++ \
+        build-essential \
         less \
         locales \
         lsof && \
@@ -24,8 +24,11 @@ RUN apt-get update -y && \
 #   (http://seaborn.pydata.org/installing.html).
 # * Upgrade beautifulsoup4 and html5lib through pip due to recent deprecations.
 #   http://stackoverflow.com/questions/38447738/beautifulsoup-html5lib-module-object-has-no-attribute-base
-RUN conda install -y \
-        jupyter && \
+RUN conda install -y jupyter && \
+    conda install -y -c r \
+        r-essentials
+        r-e1071
+        r-rocr && \
     pip install --upgrade pip && \
     pip install \
         fastcluster \
