@@ -31,6 +31,8 @@ RUN conda install -y jupyter && \
         r-rocr && \
     pip install --upgrade pip && \
     pip install \
+        astroML \
+        astroML_addons \
         fastcluster \
         geopy \
         seaborn && \
