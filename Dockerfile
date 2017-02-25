@@ -32,6 +32,7 @@ RUN conda install -y jupyter && \
     pip install --upgrade pip && \
     pip install \
         fastcluster \
+        geopy \
         seaborn && \
     pip install --upgrade \
         beautifulsoup4
