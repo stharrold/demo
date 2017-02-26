@@ -74,6 +74,7 @@ def main(
     (args, *_, values) = inspect.getargvalues(frame)
     logger.info(here+": Argument values: {args_values}".format(
         args_values=[(arg, values[arg]) for arg in sorted(args)]))
+    logger.info(here+": Version = {version}".format(version=demo.__version__))
     # Execute application.
     logger.info(here+": Executing application.")
     try:
