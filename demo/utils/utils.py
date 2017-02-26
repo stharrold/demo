@@ -12,6 +12,8 @@ import os
 import shelve
 import subprocess
 import sys
+import tempfile
+import textwrap
 import time
 import warnings
 # Import installed packages.
@@ -339,3 +341,107 @@ def rolling_window(
     shape = arr.shape[:-1] + (arr.shape[-1] - window + 1, window)
     strides = arr.strides + (arr.strides[-1],)
     return np.lib.stride_tricks.as_strided(arr, shape=shape, strides=strides)
+
+
+def get_zipcodes_locations(
+    zipcodes:list,
+    path_shelf:str=None,
+    force_query:bool=False
+    ) -> list:
+    r"""Get `geopy.location.Location` for a corresponding zipcode.
+    A local `shelf` is queried first as an object-relational mapper.
+
+    Args:
+        zipcodes (list): `list` of `str` zipcodes.
+            Example: ['01234', '01234-0123']
+        path_shelf (str, optional, None): Path to cached `shelf` of zipcodes and locations.
+            If `None` (default), path is assumed to be
+            `os.path.join(tempfile.gettempdir(), 'zipcodes_locations.shelf')`
+            If a zipcode is not in the shelf file, the location is queried from
+            Google Maps and the shelf is updated. If the shelf does not
+            exist a new one is created.
+        force_query (optional, bool, False):
+            False (default): Get a zipcode in the cached shelf if it exists
+                and update the shelf if the zipcode does not exist.
+            True: Query the zipcode location from Google Maps and update
+                the shelf, whether or not the zipcode exists. See Notes for
+                Google Maps API usage limits.
+
+    Returns:
+        locations (list): `list` of `geopy.location.Location`.
+
+    Raises:
+        ValueError: Raised if `zipcodes` are not all formatted as '01234' or '01234-0123'.
+        AssertionError: Raised if shelf file contains types that are not 'postal_code'.
+        warnings.warn: Warns about Google API limit if `len(zipcodes) > 2500`.
+
+    See Also:
+        geopy.geocoders.GoogleV3().geocode
+
+    Notes:
+        * As of 2017-02-25, the Google Geocoding API limits free users to
+            2500 queries per 24 hour period and 50 queries per second [1]_.
+    
+    References:
+        .. [1] https://developers.google.com/maps/documentation/geocoding/usage-limits
+
+    """
+    # Check input.
+    if path_shelf is None:
+        path_shelf = os.path.join(tempfile.gettempdir(), 'zipcodes_locations.shelf')
+    for zipcode in zipcodes:
+        if not (
+            isinstance(zipcode, str) and
+            (len(zipcode) == 5 or len(zipcode) == 9) and
+            (zipcode.isdigit() or (zipcode.split('-')[0].isdigit() and zipcode.split('-')[1].isdigit()))):
+            raise ValueError(textwrap.dedent("""\
+                `zipcodes` must be a list of 5-digit strings.
+                Example: zipcodes = ['01234', '01234-0123']"""))
+    if len(zipcodes) > 2500:
+        warnings.warn(textwrap.dedent("""\
+             As of 2017-02-25, the Google Geocoding API limits free users
+             to 2500 queries per 24 hour period and 50 queries per second.
+             https://developers.google.com/maps/documentation/geocoding/usage-limits"""))
+    # Create the shelf if it does not exist. Flush to disk frequently.
+    # Lookup locations for zipcodes locally first, then from Google API,
+    # unless the query is forced. Ensure less than 5 queries per second,
+    # per Google API [1]_. Some Google queries and locations may be `None`.
+    seconds_per_query = 1.0/50.0
+    locations = list()
+    chunk_size = 50
+    for idx in range(0, len(zipcodes), chunk_size):
+        shelf = shelve.open(filename=path, flag='c')
+        for zipcode in zipcodes[idx:idx+chunk_size]:
+            if (force_query is False and shelf.has_key(zipcode)):
+                raw = shelf[zipcode]
+                if raw is None:
+                    location = raw
+                else:
+                    if 'postal_code' not in raw['types']:
+                        raise AssertionError(textwrap.dedent("""\
+                            Database error. Value is not type 'postal_code':
+                            zipcode = {zipcode}
+                            value = {raw}""".format(zipcode=zipcode, raw=raw)))
+                    address = raw['formatted_address']
+                    latitude = raw['geometry']['location']['lat']
+                    longitude = raw['geometry']['location']['lng']
+                    location = geopy.location.Location(
+                        address=address, point=(latitude, longitude), raw=raw)
+            else:
+                location = geopy.geocoders.GoogleV3().geocode(
+                    query=zipcode, exactly_one=True, components=dict(
+                        country='United States', postal_code=zipcode))
+                time.sleep(seconds_per_query)
+                if location is None:
+                    shelf[zipcode] = location
+                else:
+                    raw = location.raw
+                    if 'postal_code' not in raw['types']:
+                        shelf[zipcode] = None
+                    else:
+                        shelf[zipcode] = raw
+            locations.append(location)
+        shelf.close()
+    return locations
+
+
