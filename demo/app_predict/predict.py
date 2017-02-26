@@ -434,3 +434,85 @@ def eta(
         #     (numReturned1)
     print()
     return df
+
+
+def plot_freq_dists(
+    df:pd.DataFrame,
+    ftrs:list
+    ) -> None:
+    r"""Plot frequency distributions of features.
+
+    Args:
+        df (pandas.DataFrame): Dataframe of formatted data.
+        ftrs (list): List of strings of features (columns) in `df` to plot.
+
+    Returns:
+        None
+    """
+    # Plot frequency distributions.
+    for ftr in ftrs:
+        print('#'*80)
+        print('Feature: {ftr}'.format(ftr=ftr))
+        # ...by transaction
+        sns.distplot(df[ftr].values, hist=True, kde=False, norm_hist=False)
+        plt.title('{ftr}\nfrequency distribution'.format(ftr=ftr))
+        plt.xlabel(ftr)
+        plt.ylabel('Number of transactions with\n{ftr}=X'.format(ftr=ftr))
+        plt.show()
+        # ...by buyer
+        sns.distplot(df[['BuyerID', ftr]].groupby(by='BuyerID').mean(), hist=True, kde=False, norm_hist=False)
+        plt.title('Mean {ftr} per buyer\nfrequency distribution'.format(ftr=ftr))
+        plt.xlabel(ftr)
+        plt.ylabel('Number of buyers with\n{ftr}=X'.format(ftr=ftr))
+        plt.show()
+    return None
+
+
+def plot_heuristic(
+    df:pd.DataFrame
+    ) -> None:
+    r"""Plot heuristic to predict bad dealers.
+
+    Args:
+        df (pandas.DataFrame): DataFrame of formatted data.
+
+    Returns:
+        None
+
+    """
+    # Plot timeseries histogram of Returned vs SalesDate.
+    df_plot = df[['SaleDate_decyear', 'Returned']].copy()
+    itemized_counts = {
+        ret: collections.Counter(grp['SaleDate_decyear'])
+        for (ret, grp) in df_plot.groupby(by='Returned')}
+    itemized_counts = collections.OrderedDict(
+        sorted(itemized_counts.items(), key=lambda tup: tup[0], reverse=True))
+    keys = itemized_counts.keys()
+    bins = int(np.ceil((df_plot['SaleDate_decyear'].max() - df_plot['SaleDate_decyear'].min())/(1.0/52.0)))
+    colors = sns.color_palette(n_colors=len(keys))[::-1]
+    plt.hist(
+        [list(itemized_counts[key].elements()) for key in itemized_counts.keys()],
+        bins=bins, stacked=True, rwidth=1.0, label=keys, color=colors)
+    plt.title('Returned vs SaleDate')
+    plt.xlabel('SaleDate (decimal year)')
+    plt.ylabel('Returned')
+    plt.legend(title='Returned status', loc='upper left', bbox_to_anchor=(1.0, 1.0))
+    plt.show()
+    # Plot timeseries histogram of Returned (0,1) vs SalesDate.
+    df_plot = df.loc[df['Returned']!=-1, ['SaleDate_decyear', 'Returned']].copy()
+    itemized_counts = {
+        ret: collections.Counter(grp['SaleDate_decyear'])
+        for (ret, grp) in df_plot.groupby(by='Returned')}
+    itemized_counts = collections.OrderedDict(
+        sorted(itemized_counts.items(), key=lambda tup: tup[0], reverse=True))
+    keys = itemized_counts.keys()
+    bins = int(np.ceil((df_plot['SaleDate_decyear'].max() - df_plot['SaleDate_decyear'].min())/(1.0/52.0)))
+    plt.hist(
+        [list(itemized_counts[key].elements()) for key in itemized_counts.keys()],
+        bins=bins, stacked=True, rwidth=1.0, label=keys, color=colors[:2])
+    plt.title('Returned vs SaleDate')
+    plt.xlabel('SaleDate (decimal year)')
+    plt.ylabel('Returned')
+    plt.legend(title='Returned status', loc='upper left', bbox_to_anchor=(1.0, 1.0))
+    plt.show()
+    return None
