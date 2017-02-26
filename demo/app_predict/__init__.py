@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-r"""Template for demo applications.
+r"""Prediction application.
 
 """
 
@@ -9,10 +9,10 @@ r"""Template for demo applications.
 # Import installed packages.
 # Import local packages.
 from . import main
-from . import template
+from . import predict
 
 
 # Define package index.
 __all__ = [
     'main',
-    'template']
+    'predict']
