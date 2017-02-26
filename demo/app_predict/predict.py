@@ -54,6 +54,8 @@ def eta(
     Returns:
         df (pandas.DataFrame): Dataframe of extracted data.
 
+    Notes:
+        * BuyerID_fracReturned1DivReturnedNotNull is the return rate for a buyer.
     TODO:
         * Modularize script into separate helper functions.
         # Replace `print` with `logger.info`
@@ -390,14 +392,15 @@ def eta(
         tfmask = df['Returned'] != -1
         df[col+'_numReturnedNotNull'] = df[col].map(
             collections.Counter(df.loc[tfmask, col].values)).fillna(value=0)
+        # Fraction of DealShield-eligible transactions that were DealShield-purchased (0=mode)
+        df[col+'_fracReturnedNotNullDivDSEligible1'] = \
+            (df[col+'_numReturnedNotNull']/df[col+'_numDSEligible1']).fillna(value=0)
         # Number of transactions that were DealShield-elegible and DealShield-purchased and DealShield-returned
         tfmask = df['Returned'] == 1
         df[col+'_numReturned1'] = df[col].map(
             collections.Counter(df.loc[tfmask, col].values)).fillna(value=0)
-        # Fraction of DealShield-eligible transactions that were DealShield-purchased (0=mode)
-        df[col+'_fracReturnedNotNullDivDSEligible1'] = \
-            (df[col+'_numReturnedNotNull']/df[col+'_numDSEligible1']).fillna(value=0)
         # Fraction of DealShield-eligible, DealShield-purchased transactions that were DealShield-returned (0=good, 1=bad)
+        # Note: BuyerID_fracReturned1DivReturnedNotNull is the return rate for a buyer.
         df[col+'_fracReturned1DivReturnedNotNull'] = \
             (df[col+'_numReturned1']/df[col+'_numReturnedNotNull']).fillna(value=0)
         # Check that weighted average of return rate equals overall return rate.
@@ -420,6 +423,11 @@ def eta(
         # Fraction of transactions that were assumed to be returned (0=mode)
         df[col+'_fracReturnedasm1DivTransactions'] = \
             (df[col+'_numReturnedasm1']/df[col+'_numTransactions']).fillna(value=0)
+        # Check that weighted average of assumed return rate equals overall assumed return rate.
+        assert np.isclose(
+            (df[[col, col+'_fracReturnedasm1DivTransactions', col+'_numTransactions']].groupby(by=col).mean().product(axis=1).sum()/\
+             df[[col, col+'_numTransactions']].groupby(by=col).mean().sum()).values[0],
+            sum(df['Returned_asm']==1)/sum(df['Returned_asm'] != -1))
         # Note:
         #   * Number of transactions that were DealShield-eligible and assumed to be returned ==
         #     number of transactions that were DealShield-elegible and DealShield-purchased and DealShield-returned
