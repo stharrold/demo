@@ -355,24 +355,26 @@ def create_features(
     df['SaleDate_decyear'] = df['SaleDate'].dt.year + (df['SaleDate'].dt.dayofyear-1)/366
     ########################################
     # BuyerID, SellerID, VIN, SellingLocation, CarMake, JDPowersCat:
-    # Make informative priors (*_num*, *_frac*) for string features.
+    # Make cumulative informative priors (*_num*, *_frac*) for string features.
     logger.info(textwrap.dedent("""\
         BuyerID, SellerID, VIN, SellingLocation, CarMake, JDPowersCat:
-        Make informative priors (*_num*, *_frac*) for string features."""))
+        Make cumulative informative priors (*_num*, *_frac*) for string features."""))
+    # Cumulative features require sorting by time.
+    df.sort_values(by=['SaleDate'], inplace=True)
+    df.reset_index(drop=True, inplace=True)
     for col in ['BuyerID', 'SellerID', 'VIN', 'SellingLocation', 'CarMake', 'JDPowersCat']:
         logger.info("Processing {col}".format(col=col))
         ####################
-        # Number of transactions and DSEligible:
-        # Number of transactions.
-        df[col+'_numTransactions'] = df[col].map(
-            collections.Counter(df[col].values)).fillna(value=0)
-        # Number of transations that were DealShield-eligible
-        tfmask = df['DSEligible'] == 1
-        df[col+'_numDSEligible1'] = df[col].map(
-            collections.Counter(df.loc[tfmask, col].values)).fillna(value=0)
-        # Fraction of transactions that were DealShield-eligible (0=bad, 1=good)
-        df[col+'_fracDSEligible1DivTransactions'] = \
-            (df[col+'_numDSEligible1']/df[col+'_numTransactions']).fillna(value=1)
+        # Cumulative count of transactions and DSEligible:
+        # Cumulative count of transactions (yes including current).
+        df[col+'_numTransactions'] = df[[col]].groupby(by=col).cumcount().astype(int) + 1
+        df[col+'_numTransactions'].fillna(value=1, inplace=True)
+        # Cumulative count of transations that were DealShield-eligible (yes including current).
+        df[col+'_numDSEligible1'] = df[[col, 'DSEligible']].groupby(by=col)['DSEligible'].cumsum().astype(int)
+        df[col+'_numDSEligible1'].fillna(value=0, inplace=True)
+        # Cumulative ratio of transactions that were DealShield-eligible (0=bad, 1=good).
+        df[col+'_fracDSEligible1DivTransactions'] = (df[col+'_numDSEligible1']/df[col+'_numTransactions'])
+        df[col+'_fracDSEligible1DivTransactions'].fillna(value=1, inplace=True)
         ####################
         # DSEligible and Returned
         # Note:
@@ -382,25 +384,30 @@ def create_features(
         #     Returned != -1 (not null) ==> DSEligible == 1
         assert (df.loc[df['DSEligible']==0, 'Returned'] == -1).all()
         assert (df.loc[df['Returned']!=-1, 'DSEligible'] == 1).all()
-        # Number of transactions that were DealShield-eligible and DealShield-purchased
-        tfmask = df['Returned'] != -1
-        df[col+'_numReturnedNotNull'] = df[col].map(
-            collections.Counter(df.loc[tfmask, col].values)).fillna(value=0)
-        # Fraction of DealShield-eligible transactions that were DealShield-purchased (0=mode)
-        df[col+'_fracReturnedNotNullDivDSEligible1'] = \
-            (df[col+'_numReturnedNotNull']/df[col+'_numDSEligible1']).fillna(value=0)
-        # Number of transactions that were DealShield-elegible and DealShield-purchased and DealShield-returned
-        tfmask = df['Returned'] == 1
-        df[col+'_numReturned1'] = df[col].map(
-            collections.Counter(df.loc[tfmask, col].values)).fillna(value=0)
-        # Fraction of DealShield-eligible, DealShield-purchased transactions that were DealShield-returned (0=good, 1=bad)
-        # Note: BuyerID_fracReturned1DivReturnedNotNull is the return rate for a buyer.
-        df[col+'_fracReturned1DivReturnedNotNull'] = \
-            (df[col+'_numReturned1']/df[col+'_numReturnedNotNull']).fillna(value=0)
+        # Cumulative count of transactions that were DealShield-eligible and DealShield-purchased.
+        df_tmp = df[[col, 'Returned']].copy()
+        df_tmp['ReturnedNotNull'] = df_tmp['Returned'] != -1
+        df[col+'_numReturnedNotNull'] = df_tmp[[col, 'ReturnedNotNull']].groupby(by=col)['ReturnedNotNull'].cumsum().astype(int)
+        df[col+'_numReturnedNotNull'].fillna(value=0, inplace=True)
+        del df_tmp
+        # Cumulative ratio of DealShield-eligible transactions that were DealShield-purchased (0=mode).
+        df[col+'_fracReturnedNotNullDivDSEligible1'] = df[col+'_numReturnedNotNull']/df[col+'_numDSEligible1']
+        df[col+'_fracReturnedNotNullDivDSEligible1'].fillna(value=0, inplace=True)
+        # Cumulative count of transactions that were DealShield-elegible and DealShield-purchased and DealShield-returned.
+        df_tmp = df[[col, 'Returned']].copy()
+        df_tmp['Returned1'] = df_tmp['Returned'] == 1
+        df[col+'_numReturned1'] = df_tmp[[col, 'Returned1']].groupby(by=col)['Returned1'].cumsum().astype(int)
+        df[col+'_numReturned1'].fillna(value=0, inplace=True)
+        del df_tmp
+        # Cumulative ratio of DealShield-eligible, DealShield-purchased transactions that were DealShield-returned (0=good, 1=bad).
+        # Note: BuyerID_fracReturned1DivReturnedNotNull is the cumulative return rate for a buyer.
+        df[col+'_fracReturned1DivReturnedNotNull'] = df[col+'_numReturned1']/df[col+'_numReturnedNotNull']
+        df[col+'_fracReturned1DivReturnedNotNull'].fillna(value=0, inplace=True)
         # Check that weighted average of return rate equals overall return rate.
+        # Note: Requires groups sorted by date, ascending.
         assert np.isclose(
-            (df[[col, col+'_fracReturned1DivReturnedNotNull', col+'_numReturnedNotNull']].groupby(by=col).mean().product(axis=1).sum()/\
-             df[[col, col+'_numReturnedNotNull']].groupby(by=col).mean().sum()).values[0],
+            (df[[col, col+'_fracReturned1DivReturnedNotNull', col+'_numReturnedNotNull']].groupby(by=col).last().product(axis=1).sum()/\
+             df[[col, col+'_numReturnedNotNull']].groupby(by=col).last().sum()).values[0],
             sum(df['Returned']==1)/sum(df['Returned'] != -1),
             equal_nan=True)
         ####################
@@ -411,17 +418,19 @@ def create_features(
         #     Returned_asm == 0 ==> DSEligible == 1
         assert (df.loc[df['DSEligible']==0, 'Returned_asm'] == 1).all()
         assert (df.loc[df['Returned_asm']==0, 'DSEligible'] == 1).all()
-        # Number of transactions that were assumed to be returned.
-        tfmask = df['Returned_asm'] == 1
-        df[col+'_numReturnedasm1'] = df[col].map(
-            collections.Counter(df.loc[tfmask, col].values)).fillna(value=0)
-        # Fraction of transactions that were assumed to be returned (0=mode)
-        df[col+'_fracReturnedasm1DivTransactions'] = \
-            (df[col+'_numReturnedasm1']/df[col+'_numTransactions']).fillna(value=0)
+        # Cumulative number of transactions that were assumed to be returned.
+        df_tmp = df[[col, 'Returned_asm']].copy()
+        df_tmp['Returnedasm1'] = df_tmp['Returned_asm'] == 1
+        df[col+'_numReturnedasm1'] = df_tmp[[col, 'Returnedasm1']].groupby(by=col)['Returnedasm1'].cumsum().astype(int)
+        df[col+'_numReturnedasm1'].fillna(value=0, inplace=True)
+        del df_tmp
+        # Cumulative ratio of transactions that were assumed to be returned (0=mode).
+        df[col+'_fracReturnedasm1DivTransactions'] = df[col+'_numReturnedasm1']/df[col+'_numTransactions']
+        df[col+'_fracReturnedasm1DivTransactions'].fillna(value=0, inplace=True)
         # Check that weighted average of assumed return rate equals overall assumed return rate.
         assert np.isclose(
-            (df[[col, col+'_fracReturnedasm1DivTransactions', col+'_numTransactions']].groupby(by=col).mean().product(axis=1).sum()/\
-             df[[col, col+'_numTransactions']].groupby(by=col).mean().sum()).values[0],
+            (df[[col, col+'_fracReturnedasm1DivTransactions', col+'_numTransactions']].groupby(by=col).last().product(axis=1).sum()/\
+             df[[col, col+'_numTransactions']].groupby(by=col).last().sum()).values[0],
             sum(df['Returned_asm']==1)/sum(df['Returned_asm'] != -1),
             equal_nan=True)
         # Note:
