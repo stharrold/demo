@@ -27,7 +27,7 @@ from .. import utils
 
 
 # Define module exports:
-__all__ = ['eta']
+__all__ = ['etl']
 
 
 # Define state settings and globals.
@@ -41,21 +41,17 @@ plt.switch_backend('agg')
 sns.set()
 
 
-def eta(
-    df:pd.DataFrame,
-    path_data_dir:str
+def etl(
+    df:pd.DataFrame
     ) -> pd.DataFrame:
     r"""Extract-transform-load.
 
     Args:
         df (pandas.DataFrame): Dataframe of raw data.
-        path_data_dir (str): Path to data directory for caching geocode shelf file.
 
     Returns:
-        df (pandas.DataFrame): Dataframe of extracted data.
+        df (pandas.DataFrame): Dataframe of formatted, cleaned data.
 
-    Notes:
-        * BuyerID_fracReturned1DivReturnedNotNull is the return rate for a buyer.
     TODO:
         * Modularize script into separate helper functions.
         * Modify dataframe in place
@@ -64,14 +60,8 @@ def eta(
     # Check input.
     # Copy dataframe to avoid in place modification.
     df = df.copy()
-    # Check file path.
-    if not os.path.exists(path_data_dir):
-        raise IOError(textwrap.dedent("""\
-            Path does not exist:
-            path_data_dir = {path}""".format(
-                path=path_data_dir)))
     ########################################
-    # Fix DSEligible == 0 but Returned not null
+    # DSEligible, Returned: Fix DSEligible == 0 but Returned not null
     # Some vehicles have DSEligible=0 but have Returned!=nan due to errors or extenuating circumstances.
     # To correct: If Returned!=nan, then DSEligible=1
     logger.info(textwrap.dedent("""\
@@ -89,8 +79,8 @@ def eta(
             index='DSEligible', columns='Returned',
             aggfunc=len, margins=True, dropna=False)))
     ########################################
-    # Returned
-    # NOTE: THIS TRANSFORMATION MUST BE BEFORE INFORMATIVE PRIORS SINCE Returned.isnull() -> -1
+    # Returned: fill nulls
+    # NOTE: THIS TRANSFORMATION MUST BE BEFORE FEATURE CREATION SINCE Returned.isnull() -> -1
     # Fill null values with -1 and cast to int.
     logger.info('Returned: Fill nulls with -1 and cast to int.')
     logger.info("Before:\n{pt}".format(
@@ -104,6 +94,135 @@ def eta(
             df[['DSEligible', 'Returned']].astype(str),
             index='DSEligible', columns='Returned',
             aggfunc=len, margins=True, dropna=False)))
+    ########################################
+    # BuyerID, SellerID, VIN, SellingLocation, CarMake, JDPowersCat:
+    # Cast to strings as categorical features.
+    logger.info(textwrap.dedent("""\
+        BuyerID, SellerID, VIN, SellingLocation, CarMake, JDPowersCat:
+        Cast to strings as categorical features."""))
+    for col in ['BuyerID', 'SellerID', 'VIN', 'SellingLocation', 'CarMake', 'JDPowersCat']:
+        df[col] = df[col].astype(str)
+    ########################################
+    # CarMake: Deduplicate
+    # TODO: Find/scrape hierarchical relationships between car brands
+    #     (e.g. https://en.wikipedia.org/wiki/Category:Mid-size_cars). To business people: would that be helpful?
+    # TODO: Deduplicate with spelling corrector.
+    logger.info("CarMake: Deduplicate.")
+    carmake_dedup = {
+        '1SUZU': 'ISUZU',
+        'CHEVY': 'CHEVROLET',
+        'XHEVY': 'CHEVROLET',
+        'DAMON': 'DEMON',
+        'FORESTR':'FORESTRIVER',
+        'FORESTRIVE': 'FORESTRIVER',
+        'FREIGHTLI': 'FREIGHTLINER',
+        'FREIGHTLIN': 'FREIGHTLINER',
+        'FRIGHTLIE': 'FREIGHTLINER',
+        'FRTLNRL': 'FREIGHTLINER',
+        'XFREIGHTLN': 'FREIGHTLINER',
+        'XREIGHTL': 'FREIGHTLINER',
+        'HARLEY': 'HARLEYDAVIDSON',
+        'HARLEY-DAV': 'HARLEYDAVIDSON',
+        'INTERNATIO': 'INTERNATIONAL',
+        'INTERNATL': 'INTERNATIONAL',
+        'XINTERNATI': 'INTERNATIONAL',
+        'MERCEDES': 'MERCEDES-BENZ',
+        'nan': 'UNKNOWN',
+        'XHINO': 'HINO',
+        'XOSHKOSH': 'OSHKOSH',
+        'XSMART': 'SMART'}
+    df['CarMake'] = df['CarMake'].str.replace(' ', '').apply(
+        lambda car: carmake_dedup[car] if car in carmake_dedup else car)
+    # # TODO: Experiment with one-hot encoding (problem is that it doesn't scale)
+    # df = pd.merge(
+    #     left=df,
+    #     right=pd.get_dummies(df['CarMake'], prefix='CarMake'),
+    #     left_index=True,
+    #     right_index=True)
+    ########################################
+    # LIGHTG, LIGHTY, LIGHTR
+    # Retain light with highest warning
+    logger.info("LIGHT*: Only retain light with highest warning.")
+    pt = pd.DataFrame([
+        df.loc[df['LIGHTG']==1, ['LIGHTG', 'LIGHTY', 'LIGHTR']].sum(),
+        df.loc[df['LIGHTY']==1, ['LIGHTG', 'LIGHTY', 'LIGHTR']].sum(),
+        df.loc[df['LIGHTR']==1, ['LIGHTG', 'LIGHTY', 'LIGHTR']].sum()],
+        index=['LIGHTG=1', 'LIGHTY=1', 'LIGHTR=1'])
+    pt.columns = ['LIGHTG=1', 'LIGHTY=1', 'LIGHTR=1']
+    logger.info("Before:\n{pt}".format(pt=pt))
+    df.loc[df['LIGHTR']==1, ['LIGHTG', 'LIGHTY']] = 0
+    df.loc[df['LIGHTY']==1, ['LIGHTG']] = 0
+    pt = pd.DataFrame([
+        df.loc[df['LIGHTG']==1, ['LIGHTG', 'LIGHTY', 'LIGHTR']].sum(),
+        df.loc[df['LIGHTY']==1, ['LIGHTG', 'LIGHTY', 'LIGHTR']].sum(),
+        df.loc[df['LIGHTR']==1, ['LIGHTG', 'LIGHTY', 'LIGHTR']].sum()],
+        index=['LIGHTG=1', 'LIGHTY=1', 'LIGHTR=1'])
+    pt.columns = ['LIGHTG=1', 'LIGHTY=1', 'LIGHTR=1']
+    logger.info("After:\n{pt}".format(pt=pt))
+    ########################################
+    # SaleDate: Cast to datetime.
+    logger.info("SaleDate: Cast to datetime.")
+    if df['SaleDate'].dtype == 'O':
+        df['SaleDate'] = pd.to_datetime(df['SaleDate'], format=r'%y-%m-%d')
+    ########################################
+    # Autocheck_score: Fill null values with mode (1)
+    # TODO: Use nearest neighbors to infer probable fill value.
+    logger.info("Autocheck_score: Fill null values with mode (1).")
+    df['Autocheck_score'] = df['Autocheck_score'].fillna(value=1)
+    ########################################
+    # ConditionReport
+    # Map character codes to numerical values, invalid codes are "average".
+    logger.info("ConditionReport: Map character codes to numerical values. Invalid codes are 'average'.")
+    conrpt_value = {
+        'EC': 50,
+        'CL': 40,
+        'AV': 30,
+        'RG': 20,
+        'PR': 10,
+        'SL': 0,
+        'A': 30,
+        'A3': 30,
+        'Y6': 30,
+        'nan': 30}
+    df['ConditionReport'] = df['ConditionReport'].astype(str).apply(
+        lambda con: conrpt_value[con] if con in conrpt_value else con)
+    df['ConditionReport'] = df['ConditionReport'].astype(int)
+    return df
+
+
+def create_features(
+    df:pd.DataFrame,
+    path_data_dir:str
+    ) -> pd.DataFrame:
+    r"""Create features for post-ETL data.
+
+    Args:
+        df (pandas.DataFrame): Dataframe of raw data.
+        path_data_dir (str): Path to data directory for caching geocode shelf file.
+
+    Returns:
+        df (pandas.DataFrame): Dataframe of extracted data.
+
+    See Also:
+        etl
+
+    Notes:
+        * BuyerID_fracReturned1DivReturnedNotNull is the return rate for a buyer.
+
+    TODO:
+        * Modularize script into separate helper functions.
+        * Modify dataframe in place
+
+    """
+    # Check input.
+    # Copy dataframe to avoid in place modification.
+    df = df.copy()
+    # Check file path.
+    if not os.path.exists(path_data_dir):
+        raise IOError(textwrap.dedent("""\
+            Path does not exist:
+            path_data_dir = {path}""".format(
+                path=path_data_dir)))
     ########################################
     # Returned_asm
     # Interpretation of assumptions:
@@ -146,7 +265,7 @@ def eta(
             index='Returned', columns='Returned_asm',
             aggfunc=len, margins=True, dropna=False)))
     ########################################
-    # Geocode SellingLocation
+    # SellingLocation_lat, SellingLocation_lon
     # Cell takes ~1 min to execute if shelf does not exist.
     # Google API limit: https://developers.google.com/maps/documentation/geocoding/usage-limits
     logger.info(textwrap.dedent("""\
@@ -210,44 +329,7 @@ def eta(
     #     left_index=True,
     #     right_index=True)
     ########################################
-    # Deduplicate CarMake
-    # TODO: Find/scrape hierarchical relationships between car brands
-    #     (e.g. https://en.wikipedia.org/wiki/Category:Mid-size_cars). To business people: would that be helpful?
-    # TODO: Deduplicate with spelling corrector.
-    logger.info("CarMake: Deduplicate.")
-    carmake_dedup = {
-        '1SUZU': 'ISUZU',
-        'CHEVY': 'CHEVROLET',
-        'XHEVY': 'CHEVROLET',
-        'DAMON': 'DEMON',
-        'FORESTR':'FORESTRIVER',
-        'FORESTRIVE': 'FORESTRIVER',
-        'FREIGHTLI': 'FREIGHTLINER',
-        'FREIGHTLIN': 'FREIGHTLINER',
-        'FRIGHTLIE': 'FREIGHTLINER',
-        'FRTLNRL': 'FREIGHTLINER',
-        'XFREIGHTLN': 'FREIGHTLINER',
-        'XREIGHTL': 'FREIGHTLINER',
-        'HARLEY': 'HARLEYDAVIDSON',
-        'HARLEY-DAV': 'HARLEYDAVIDSON',
-        'INTERNATIO': 'INTERNATIONAL',
-        'INTERNATL': 'INTERNATIONAL',
-        'XINTERNATI': 'INTERNATIONAL',
-        'MERCEDES': 'MERCEDES-BENZ',
-        'nan': 'UNKNOWN',
-        'XHINO': 'HINO',
-        'XOSHKOSH': 'OSHKOSH',
-        'XSMART': 'SMART'}
-    df['CarMake'] = (df['CarMake'].astype(str)).str.replace(' ', '').apply(
-        lambda car: carmake_dedup[car] if car in carmake_dedup else car)
-    # # TODO: Experiment with one-hot encoding (problem is that it doesn't scale)
-    # df = pd.merge(
-    #     left=df,
-    #     right=pd.get_dummies(df['CarMake'], prefix='CarMake'),
-    #     left_index=True,
-    #     right_index=True)
-    ########################################
-    # JDPowersCat
+    # JDPowersCat: One-hot encoding
     # TODO: Estimate sizes from Wikipedia, e.g. https://en.wikipedia.org/wiki/Vehicle_size_class.
     logger.info("JDPowersCat: One-hot encoding.")
     # Cast to string, replacing 'nan' with 'UNKNOWN'.
@@ -260,66 +342,20 @@ def eta(
         left_index=True,
         right_index=True)
     ########################################
-    # LIGHTG, LIGHTY, LIGHTR, LIGHT_N0G1Y2R3
-    # Retain light with highest warning
-    logger.info("LIGHT*: Only retain light with highest warning.")
-    pt = pd.DataFrame([
-        df.loc[df['LIGHTG']==1, ['LIGHTG', 'LIGHTY', 'LIGHTR']].sum(),
-        df.loc[df['LIGHTY']==1, ['LIGHTG', 'LIGHTY', 'LIGHTR']].sum(),
-        df.loc[df['LIGHTR']==1, ['LIGHTG', 'LIGHTY', 'LIGHTR']].sum()],
-        index=['LIGHTG=1', 'LIGHTY=1', 'LIGHTR=1'])
-    pt.columns = ['LIGHTG=1', 'LIGHTY=1', 'LIGHTR=1']
-    logger.info("Before:\n{pt}".format(pt=pt))
-    df.loc[df['LIGHTR']==1, ['LIGHTG', 'LIGHTY']] = 0
-    df.loc[df['LIGHTY']==1, ['LIGHTG']] = 0
-    pt = pd.DataFrame([
-        df.loc[df['LIGHTG']==1, ['LIGHTG', 'LIGHTY', 'LIGHTR']].sum(),
-        df.loc[df['LIGHTY']==1, ['LIGHTG', 'LIGHTY', 'LIGHTR']].sum(),
-        df.loc[df['LIGHTR']==1, ['LIGHTG', 'LIGHTY', 'LIGHTR']].sum()],
-        index=['LIGHTG=1', 'LIGHTY=1', 'LIGHTR=1'])
-    pt.columns = ['LIGHTG=1', 'LIGHTY=1', 'LIGHTR=1']
-    logger.info("After:\n{pt}".format(pt=pt))
+    # LIGHT_N0G1Y2R3
     # Rank lights by warning level.
     logger.info("LIGHT_N0G1Y2R3: Rank lights by warning level (null=0, green=1, yellow=2, red=3).")
     df['LIGHT_N0G1Y2R3'] = df['LIGHTG']*1 + df['LIGHTY']*2 + df['LIGHTR']*3
     ########################################
-    # SaleDate
-    # Extract timeseries features for SaleDate
+    # SaleDate_*: Extract timeseries features.
     logger.info("SaleDate: Extract timeseries features.")
-    if df['SaleDate'].dtype == 'O':
-        df['SaleDate'] = pd.to_datetime(df['SaleDate'], format=r'%y-%m-%d')
     df['SaleDate_dow'] = df['SaleDate'].dt.dayofweek
     df['SaleDate_doy'] = df['SaleDate'].dt.dayofyear
     df['SaleDate_day'] = df['SaleDate'].dt.day
     df['SaleDate_decyear'] = df['SaleDate'].dt.year + (df['SaleDate'].dt.dayofyear-1)/366
     ########################################
-    # Autocheck_score
-    # TODO: Use nearest neighbors to infer probable fill value.
-    # Fill null values with mode (1.0).
-    logger.info("Autocheck_score: Fill null values with mode (1).")
-    df['Autocheck_score'] = df['Autocheck_score'].fillna(value=1)
-    ########################################
-    # ConditionReport
-    # Map character codes to numerical values, invalid codes are "average".
-    logger.info("ConditionReport: Map character codes to numerical values. Invalid codes are 'average'.")
-    conrpt_value = {
-        'EC': 50,
-        'CL': 40,
-        'AV': 30,
-        'RG': 20,
-        'PR': 10,
-        'SL': 0,
-        'A': 30,
-        'A3': 30,
-        'Y6': 30,
-        'nan': 30}
-    df['ConditionReport'] = df['ConditionReport'].astype(str).apply(
-        lambda con: conrpt_value[con] if con in conrpt_value else con)
-    df['ConditionReport'] = df['ConditionReport'].astype(int)
-    ########################################
     # BuyerID, SellerID, VIN, SellingLocation, CarMake, JDPowersCat:
     # Make informative priors (*_num*, *_frac*) for string features.
-    # TODO: Also make priors using Returned_asm
     logger.info(textwrap.dedent("""\
         BuyerID, SellerID, VIN, SellingLocation, CarMake, JDPowersCat:
         Make informative priors (*_num*, *_frac*) for string features."""))
@@ -327,8 +363,6 @@ def eta(
         logger.info("Processing {col}".format(col=col))
         ####################
         # Number of transactions and DSEligible:
-        # Cast to string.
-        df[col] = df[col].astype(str)
         # Number of transactions.
         df[col+'_numTransactions'] = df[col].map(
             collections.Counter(df[col].values)).fillna(value=0)
