@@ -58,7 +58,6 @@ def eta(
         * BuyerID_fracReturned1DivReturnedNotNull is the return rate for a buyer.
     TODO:
         * Modularize script into separate helper functions.
-        # Replace `print` with `logger.info`
         * Modify dataframe in place
 
     """
@@ -71,50 +70,40 @@ def eta(
             Path does not exist:
             path_data_dir = {path}""".format(
                 path=path_data_dir)))
-    
     ########################################
     # Fix DSEligible == 0 but Returned not null
     # Some vehicles have DSEligible=0 but have Returned!=nan due to errors or extenuating circumstances.
     # To correct: If Returned!=nan, then DSEligible=1
-    print('#'*80)
-    print("DSEligible, Returned: Fix DSEligible == 0 but Returned not null.")
-    print("To correct: If Returned not null, then DSEligible = 1.")
-    print()
-    print("Before:\n{pt}".format(
+    logger.info(textwrap.dedent("""\
+        DSEligible, Returned: Fix DSEligible == 0 but Returned not null.
+        To correct: If Returned not null, then DSEligible = 1."""))
+    logger.info("Before:\n{pt}".format(
         pt=pd.pivot_table(
             df[['DSEligible', 'Returned']].astype(str),
             index='DSEligible', columns='Returned',
             aggfunc=len, margins=True, dropna=False)))
-    print()
     df.loc[df['Returned'].notnull(), 'DSEligible'] = 1
-    print("After:\n{pt}".format(
+    logger.info("After:\n{pt}".format(
         pt=pd.pivot_table(
             df[['DSEligible', 'Returned']].astype(str),
             index='DSEligible', columns='Returned',
             aggfunc=len, margins=True, dropna=False)))
-    print()
-
     ########################################
     # Returned
     # NOTE: THIS TRANSFORMATION MUST BE BEFORE INFORMATIVE PRIORS SINCE Returned.isnull() -> -1
     # Fill null values with -1 and cast to int.
-    print('#'*80)
-    print('Returned: Fill nulls with -1 and cast to int.')
-    print()
-    print("Before:\n{pt}".format(
+    logger.info('Returned: Fill nulls with -1 and cast to int.')
+    logger.info("Before:\n{pt}".format(
         pt=pd.pivot_table(
             df[['DSEligible', 'Returned']].astype(str),
             index='DSEligible', columns='Returned',
             aggfunc=len, margins=True, dropna=False)))
-    print()
     df['Returned'] = df[['Returned']].fillna(value=-1).astype(int)
-    print("After:\n{pt}".format(
+    logger.info("After:\n{pt}".format(
         pt=pd.pivot_table(
             df[['DSEligible', 'Returned']].astype(str),
             index='DSEligible', columns='Returned',
             aggfunc=len, margins=True, dropna=False)))
-    print()
-
     ########################################
     # Returned_asm
     # Interpretation of assumptions:
@@ -130,8 +119,7 @@ def eta(
     # Assume:
     # If Returned=-1 and DSEligible=0, then Returned_asm=1
     # If Returned=-1 and DSEligible=1, then Returned_asm=0
-    print('#'*80)
-    print(textwrap.dedent("""\
+    logger.info(textwrap.dedent("""\
         Returned_asm: Assume returned status to fill nulls as new feature.
         If Returned=-1 and DSEligible=0, then Returned_asm=1 (assumes low P(resale|buyer, car))
         If Returned=-1 and DSEligible=1, then Returned_asm=0 (assumes high P(resale|buyer, car))"""))
@@ -142,33 +130,28 @@ def eta(
     df.loc[
         np.logical_and(df['Returned'] == -1, df['DSEligible'] == 1),
         'Returned_asm'] = 0
-    print()
-    print("Relationship between DSEligible and Returned:\n{pt}".format(
+    logger.info("Relationship between DSEligible and Returned:\n{pt}".format(
         pt=pd.pivot_table(
             df[['DSEligible', 'Returned']].astype(str),
             index='DSEligible', columns='Returned',
             aggfunc=len, margins=True, dropna=False)))
-    print()
-    print("Relationship between DSEligible and Returned_asm:\n{pt}".format(
+    logger.info("Relationship between DSEligible and Returned_asm:\n{pt}".format(
         pt=pd.pivot_table(
             df[['DSEligible', 'Returned_asm']].astype(str),
             index='DSEligible', columns='Returned_asm',
             aggfunc=len, margins=True, dropna=False)))
-    print()
-    print("Relationship between Returned and Returned_asm:\n{pt}".format(
+    logger.info("Relationship between Returned and Returned_asm:\n{pt}".format(
         pt=pd.pivot_table(
             df[['Returned', 'Returned_asm']].astype(str),
             index='Returned', columns='Returned_asm',
             aggfunc=len, margins=True, dropna=False)))
-    print()
-
     ########################################
     # Geocode SellingLocation
     # Cell takes ~1 min to execute if shelf does not exist.
     # Google API limit: https://developers.google.com/maps/documentation/geocoding/usage-limits
-    print('#'*80)
-    print("SellingLocation: Geocode.")
-    print("Scraping webpages for addresses and looking up latitude, longitude coordinates.")
+    logger.info(textwrap.dedent("""\
+        SellingLocation: Geocode.
+        Scraping webpages for addresses and looking up latitude, longitude coordinates."""))
     path_shelf = os.path.join(path_data_dir, 'sellloc_geoloc.shelf')
     seconds_per_query = 1.0/50.0 # Google API limit
     sellloc_geoloc = dict()
@@ -210,7 +193,7 @@ def eta(
                     else:
                         shelf[loc] = location.raw
             sellloc_geoloc[loc] = location
-    print("Mapping SellingLocation to latitude, longitude coordinates.")
+    logger.info("Mapping SellingLocation to latitude, longitude coordinates.")
     sellloc_lat = {
         sellloc: (geoloc.latitude if geoloc is not None else 0.0)
         for (sellloc, geoloc) in sellloc_geoloc.items()}
@@ -226,15 +209,12 @@ def eta(
     #     how='inner',
     #     left_index=True,
     #     right_index=True)
-    print()
-
     ########################################
     # Deduplicate CarMake
     # TODO: Find/scrape hierarchical relationships between car brands
     #     (e.g. https://en.wikipedia.org/wiki/Category:Mid-size_cars). To business people: would that be helpful?
     # TODO: Deduplicate with spelling corrector.
-    print('#'*80)
-    print("CarMake: Deduplicate.")
+    logger.info("CarMake: Deduplicate.")
     carmake_dedup = {
         '1SUZU': 'ISUZU',
         'CHEVY': 'CHEVROLET',
@@ -266,13 +246,10 @@ def eta(
     #     right=pd.get_dummies(df['CarMake'], prefix='CarMake'),
     #     left_index=True,
     #     right_index=True)
-    print()
-
     ########################################
     # JDPowersCat
     # TODO: Estimate sizes from Wikipedia, e.g. https://en.wikipedia.org/wiki/Vehicle_size_class.
-    print('#'*80)
-    print("JDPowersCat: One-hot encoding.")
+    logger.info("JDPowersCat: One-hot encoding.")
     # Cast to string, replacing 'nan' with 'UNKNOWN'.
     df['JDPowersCat'] = (df['JDPowersCat'].astype(str)).str.replace(' ', '').apply(
         lambda cat: 'UNKNOWN' if cat == 'nan' else cat)
@@ -282,22 +259,17 @@ def eta(
         right=pd.get_dummies(df['JDPowersCat'], prefix='JDPowersCat'),
         left_index=True,
         right_index=True)
-    print()
-
     ########################################
-    # LIGHTG, LIGHTY, LIGHTR, LIGHT_G1Y2R3
-    # Fix all transactions so that only light with highest warning is retained.
-    print('#'*80)
-    print("LIGHT*: Only retain light with highest warning.")
-    print()
+    # LIGHTG, LIGHTY, LIGHTR, LIGHT_N0G1Y2R3
+    # Retain light with highest warning
+    logger.info("LIGHT*: Only retain light with highest warning.")
     pt = pd.DataFrame([
         df.loc[df['LIGHTG']==1, ['LIGHTG', 'LIGHTY', 'LIGHTR']].sum(),
         df.loc[df['LIGHTY']==1, ['LIGHTG', 'LIGHTY', 'LIGHTR']].sum(),
         df.loc[df['LIGHTR']==1, ['LIGHTG', 'LIGHTY', 'LIGHTR']].sum()],
         index=['LIGHTG=1', 'LIGHTY=1', 'LIGHTR=1'])
     pt.columns = ['LIGHTG=1', 'LIGHTY=1', 'LIGHTR=1']
-    print("Before:\n{pt}".format(pt=pt))
-    print()
+    logger.info("Before:\n{pt}".format(pt=pt))
     df.loc[df['LIGHTR']==1, ['LIGHTG', 'LIGHTY']] = 0
     df.loc[df['LIGHTY']==1, ['LIGHTG']] = 0
     pt = pd.DataFrame([
@@ -306,39 +278,30 @@ def eta(
         df.loc[df['LIGHTR']==1, ['LIGHTG', 'LIGHTY', 'LIGHTR']].sum()],
         index=['LIGHTG=1', 'LIGHTY=1', 'LIGHTR=1'])
     pt.columns = ['LIGHTG=1', 'LIGHTY=1', 'LIGHTR=1']
-    print("After:\n{pt}".format(pt=pt))
-    print()
-    # Rank lights by warning level: null=0, green=1, yellow=2, red=3
-    print("LIGHT_N0G1Y2R3: Rank lights by warning level (null=0, green=1, yellow=2, red=3).")
+    logger.info("After:\n{pt}".format(pt=pt))
+    # Rank lights by warning level.
+    logger.info("LIGHT_N0G1Y2R3: Rank lights by warning level (null=0, green=1, yellow=2, red=3).")
     df['LIGHT_N0G1Y2R3'] = df['LIGHTG']*1 + df['LIGHTY']*2 + df['LIGHTR']*3
-    print()
-
     ########################################
     # SaleDate
     # Extract timeseries features for SaleDate
-    print('#'*80)
-    print("SaleDate: Extract timeseries features.")
-    df['SaleDate'] = pd.to_datetime(df['SaleDate'], format=r'%y-%m-%d')
+    logger.info("SaleDate: Extract timeseries features.")
+    if df['SaleDate'].dtype == 'O':
+        df['SaleDate'] = pd.to_datetime(df['SaleDate'], format=r'%y-%m-%d')
     df['SaleDate_dow'] = df['SaleDate'].dt.dayofweek
     df['SaleDate_doy'] = df['SaleDate'].dt.dayofyear
     df['SaleDate_day'] = df['SaleDate'].dt.day
     df['SaleDate_decyear'] = df['SaleDate'].dt.year + (df['SaleDate'].dt.dayofyear-1)/366
-    print()
-
     ########################################
     # Autocheck_score
     # TODO: Use nearest neighbors to infer probable fill value.
     # Fill null values with mode (1.0).
-    print('#'*80)
-    print("Autocheck_score: Fill null values with mode (1).")
+    logger.info("Autocheck_score: Fill null values with mode (1).")
     df['Autocheck_score'] = df['Autocheck_score'].fillna(value=1)
-    print()
-
     ########################################
     # ConditionReport
     # Map character codes to numerical values, invalid codes are "average".
-    print('#'*80)
-    print("ConditionReport: Map character codes to numerical values. Invalid codes are 'average'.")
+    logger.info("ConditionReport: Map character codes to numerical values. Invalid codes are 'average'.")
     conrpt_value = {
         'EC': 50,
         'CL': 40,
@@ -353,18 +316,15 @@ def eta(
     df['ConditionReport'] = df['ConditionReport'].astype(str).apply(
         lambda con: conrpt_value[con] if con in conrpt_value else con)
     df['ConditionReport'] = df['ConditionReport'].astype(int)
-    print()
-
     ########################################
     # BuyerID, SellerID, VIN, SellingLocation, CarMake, JDPowersCat:
     # Make informative priors (*_num*, *_frac*) for string features.
     # TODO: Also make priors using Returned_asm
-    print('#'*80)
-    print(textwrap.dedent("""\
+    logger.info(textwrap.dedent("""\
         BuyerID, SellerID, VIN, SellingLocation, CarMake, JDPowersCat:
         Make informative priors (*_num*, *_frac*) for string features."""))
     for col in ['BuyerID', 'SellerID', 'VIN', 'SellingLocation', 'CarMake', 'JDPowersCat']:
-        print("Processing {col}".format(col=col))
+        logger.info("Processing {col}".format(col=col))
         ####################
         # Number of transactions and DSEligible:
         # Cast to string.
@@ -407,7 +367,8 @@ def eta(
         assert np.isclose(
             (df[[col, col+'_fracReturned1DivReturnedNotNull', col+'_numReturnedNotNull']].groupby(by=col).mean().product(axis=1).sum()/\
              df[[col, col+'_numReturnedNotNull']].groupby(by=col).mean().sum()).values[0],
-            sum(df['Returned']==1)/sum(df['Returned'] != -1))
+            sum(df['Returned']==1)/sum(df['Returned'] != -1),
+            equal_nan=True)
         ####################
         # DSEligible and Returned_asm
         # NOTE:
@@ -427,12 +388,12 @@ def eta(
         assert np.isclose(
             (df[[col, col+'_fracReturnedasm1DivTransactions', col+'_numTransactions']].groupby(by=col).mean().product(axis=1).sum()/\
              df[[col, col+'_numTransactions']].groupby(by=col).mean().sum()).values[0],
-            sum(df['Returned_asm']==1)/sum(df['Returned_asm'] != -1))
+            sum(df['Returned_asm']==1)/sum(df['Returned_asm'] != -1),
+            equal_nan=True)
         # Note:
         #   * Number of transactions that were DealShield-eligible and assumed to be returned ==
         #     number of transactions that were DealShield-elegible and DealShield-purchased and DealShield-returned
         #     (numReturned1)
-    print()
     return df
 
 
@@ -634,7 +595,7 @@ def plot_heuristic(
     itemized_counts = collections.OrderedDict(
         sorted(itemized_counts.items(), key=lambda tup: tup[0], reverse=False))
     keys = itemized_counts.keys()
-    bins = 50
+    bins = 20
     colors = sns.light_palette(sns.color_palette()[2], n_colors=len(keys))
     plt.hist(
         [itemized_counts[key] for key in itemized_counts.keys()],

@@ -28,8 +28,8 @@ RUN conda install -y jupyter && \
     conda install -y -c r \
         r-essentials \
         r-e1071 \
-        r-rocr && \
-    pip install --upgrade pip && \
+        r-rocr
+RUN pip install --upgrade pip && \
     pip install \
         astroML \
         astroML_addons \
