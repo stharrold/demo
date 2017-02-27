@@ -433,14 +433,14 @@ def create_features(
 
 def plot_freq_dists(
     df:pd.DataFrame,
-    ftrs:list,
+    columns:list,
     path_plot_dir:str=None
     ) -> None:
     r"""Plot frequency distributions of features.
 
     Args:
         df (pandas.DataFrame): Dataframe of formatted data.
-        ftrs (list): List of strings of features (columns) in `df` to plot.
+        columns (list): List of strings of columns in `df` to plot.
         path_plot_dir (str, optional, None): Path to directory in which to save plots.
 
     Returns:
@@ -456,29 +456,29 @@ def plot_freq_dists(
             Path does not exist: path_plot_dir =
             {path}""".format(path=path_plot_dir)))
     # Plot frequency distributions.
-    for ftr in ftrs:
+    for col in columns:
         print('#'*80)
-        print('Feature: {ftr}'.format(ftr=ftr))
+        print('Feature: {col}'.format(col=col))
         # ...by transaction
-        sns.distplot(df[ftr].values, hist=True, kde=False, norm_hist=False)
-        plt.title('{ftr}\nfrequency distribution'.format(ftr=ftr))
-        plt.xlabel(ftr)
-        plt.ylabel('Number of transactions with\n{ftr} = X'.format(ftr=ftr))
+        sns.distplot(df[col].values, hist=True, kde=False, norm_hist=False)
+        plt.title('{col}\nfrequency distribution'.format(col=col))
+        plt.xlabel(col)
+        plt.ylabel('Number of transactions with\n{col} = X'.format(col=col))
         plt.tight_layout()
         if path_plot_dir is not None:
             plt.savefig(
-                os.path.join(path_plot_dir, 'freq-dist-transaction_'+ftr+'.png'),
+                os.path.join(path_plot_dir, 'freq-dist-transaction_'+col+'.png'),
                 dpi=300)
         plt.show()
         # ...by buyer
-        sns.distplot(df[['BuyerID', ftr]].groupby(by='BuyerID').mean(), hist=True, kde=False, norm_hist=False)
-        plt.title('Mean {ftr} per buyer\nfrequency distribution'.format(ftr=ftr))
-        plt.xlabel(ftr)
-        plt.ylabel('Number of buyers with\n{ftr} = X'.format(ftr=ftr))
+        sns.distplot(df[['BuyerID', col]].groupby(by='BuyerID').mean(), hist=True, kde=False, norm_hist=False)
+        plt.title('Mean {col} per buyer\nfrequency distribution'.format(col=col))
+        plt.xlabel(col)
+        plt.ylabel('Number of buyers with\n{col} = X'.format(col=col))
         plt.tight_layout()
         if path_plot_dir is not None:
             plt.savefig(
-                os.path.join(path_plot_dir, 'freq-dist-buyer_'+ftr+'.png'),
+                os.path.join(path_plot_dir, 'freq-dist-buyer_'+col+'.png'),
                 dpi=300)
         plt.show()
     return None
