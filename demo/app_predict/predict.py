@@ -1043,7 +1043,7 @@ def update_features_append(
         # Cumulative count of transations that were DealShield-eligible (yes including current).
         df_next[col+'_numDSEligible1'] = df_next[[col, 'DSEligible']].groupby(by=col)['DSEligible'].cumsum().astype(int)
         df_next[col+'_numDSEligible1'].fillna(value=0, inplace=True)
-        df_next[col+'_numDSEligible1'] += df_next[col].map(prev_num[col+'_numDSEligible1']).fillna(value=0)
+        df_next[col+'_numDSEligible1'] += df_next[col].map(prev_nums[col+'_numDSEligible1']).fillna(value=0)
         # Cumulative ratio of transactions that were DealShield-eligible (0=bad, 1=good).
         df_next[col+'_fracDSEligible1DivTransactions'] = df_next[col+'_numDSEligible1']/df_next[col+'_numTransactions']
         df_next[col+'_fracDSEligible1DivTransactions'].fillna(value=1, inplace=True)
@@ -1059,26 +1059,22 @@ def update_features_append(
         assert (df_next.loc[df_next['DSEligible']==0, 'Returned'] == -1).all()
         assert (df_next.loc[df_next['Returned']!=-1, 'DSEligible'] == 1).all()
         # Cumulative count of transactions that were DealShield-eligible and DealShield-purchased.
-        prev_num = df_prev[[col, col+'_numReturnedNotNull']].groupby(by=col).last().astype(int)[col+'_numReturnedNotNull']
-        prev_num = df_next[col].map(prev_num).fillna(value=0)
         df_tmp = df_next[[col, 'Returned']].copy()
         df_tmp['ReturnedNotNull'] = df_tmp['Returned'] != -1
         df_next[col+'_numReturnedNotNull'] = df_tmp[[col, 'ReturnedNotNull']].groupby(by=col)['ReturnedNotNull'].cumsum().astype(int)
         df_next[col+'_numReturnedNotNull'].fillna(value=0, inplace=True)
-        df_next[col+'_numReturnedNotNull'] += prev_num
-        del df_tmp, prev_num
+        df_next[col+'_numReturnedNotNull'] += df_next[col].map(prev_nums[col+'_numReturnedNotNull']).fillna(value=0)
+        del df_tmp
         # Cumulative ratio of DealShield-eligible transactions that were DealShield-purchased (0=mode).
         df_next[col+'_fracReturnedNotNullDivDSEligible1'] = df_next[col+'_numReturnedNotNull']/df_next[col+'_numDSEligible1']
         df_next[col+'_fracReturnedNotNullDivDSEligible1'].fillna(value=0, inplace=True)
         # Cumulative count of transactions that were DealShield-elegible and DealShield-purchased and DealShield-returned.
-        prev_num = df_prev[[col, col+'_numReturned1']].groupby(by=col).last().astype(int)[col+'_numReturned1']
-        prev_num = df_next[col].map(prev_num).fillna(value=0)
         df_tmp = df_next[[col, 'Returned']].copy()
         df_tmp['Returned1'] = df_tmp['Returned'] == 1
         df_next[col+'_numReturned1'] = df_tmp[[col, 'Returned1']].groupby(by=col)['Returned1'].cumsum().astype(int)
         df_next[col+'_numReturned1'].fillna(value=0, inplace=True)
-        df_next[col+'_numReturned1'] += prev_num
-        del df_tmp, prev_num
+        df_next[col+'_numReturned1'] += df_next[col].map(prev_nums[col+'_numReturned1']).fillna(value=0)
+        del df_tmp
         # Cumulative ratio of DealShield-eligible, DealShield-purchased transactions that were DealShield-returned (0=good, 1=bad).
         # Note: BuyerID_fracReturned1DivReturnedNotNull is the cumulative return rate for a buyer.
         df_next[col+'_fracReturned1DivReturnedNotNull'] = df_next[col+'_numReturned1']/df_next[col+'_numReturnedNotNull']
@@ -1103,14 +1099,12 @@ def update_features_append(
         assert (df_next.loc[df_next['DSEligible']==0, 'Returned_asm'] == 1).all()
         assert (df_next.loc[df_next['Returned_asm']==0, 'DSEligible'] == 1).all()
         # Cumulative number of transactions that were assumed to be returned.
-        prev_num = df_prev[[col, col+'_numReturnedasm1']].groupby(by=col).last().astype(int)[col+'_numReturnedasm1']
-        prev_num = df_next[col].map(prev_num).fillna(value=0)
         df_tmp = df_next[[col, 'Returned_asm']].copy()
         df_tmp['Returnedasm1'] = df_tmp['Returned_asm'] == 1
         df_next[col+'_numReturnedasm1'] = df_tmp[[col, 'Returnedasm1']].groupby(by=col)['Returnedasm1'].cumsum().astype(int)
         df_next[col+'_numReturnedasm1'].fillna(value=0, inplace=True)
-        df_next[col+'_numReturnedasm1'] += prev_num
-        del df_tmp, prev_num
+        df_next[col+'_numReturnedasm1'] += df_next[col].map(prev_nums[col+'_numReturnedasm1']).fillna(value=0)
+        del df_tmp
         # Cumulative ratio of transactions that were assumed to be returned (0=mode).
         df_next[col+'_fracReturnedasm1DivTransactions'] = df_next[col+'_numReturnedasm1']/df_next[col+'_numTransactions']
         df_next[col+'_fracReturnedasm1DivTransactions'].fillna(value=0, inplace=True)
