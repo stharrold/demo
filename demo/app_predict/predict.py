@@ -147,6 +147,11 @@ def etl(
     #     left_index=True,
     #     right_index=True)
     ########################################
+    # JDPowersCat: Replace nan with UNKNOWN
+    logger.info("JDPowersCat: Replace 'nan' with 'UNKNOWN'.")
+    df['JDPowersCat'] = df['JDPowersCat'].str.replace(' ', '').apply(
+        lambda cat: 'UNKNOWN' if cat == 'nan' else cat)
+    ########################################
     # LIGHTG, LIGHTY, LIGHTR
     # Retain light with highest warning
     logger.info("LIGHT*: Only retain light with highest warning.")
@@ -793,3 +798,156 @@ def plot_heuristic(
             dpi=300)
     plt.show()
     return None
+
+
+def update_features(
+    df:pd.DataFrame
+    ) -> pd.DataFrame:
+    r"""Update features for timeseries training.
+
+    Args:
+        df (pandas.DataFrame): Dataframe of raw data.
+
+    Returns:
+        df (pandas.DataFrame): Dataframe of extracted data.
+
+    See Also:
+        create_features
+
+    Notes:
+        * BuyerID_fracReturned1DivReturnedNotNull is the return rate for a buyer.
+
+    TODO:
+        * Modularize script into separate helper functions.
+        * Modify dataframe in place
+
+    """
+    # Check input.
+    # Copy dataframe to avoid in place modification.
+    df = df.copy()
+    ########################################
+    # Returned_asm
+    # Interpretation of assumptions:
+    # If DSEligible=0, then the vehicle is not eligible for a guarantee.
+    # * And Returned=-1 (null) since we don't know whether or not it would have been returned,
+    #   but given that it wasn't eligible, it may have been likely to have Returned=1.
+    # If DSEligible=1, then the vehicle is eligible for a guarantee.
+    # * And if Returned=0 then the guarantee was purchased and the vehicle was not returned.
+    # * And if Returned=1 then the guarantee was purchased and the vehicle was returned.
+    # * And if Returned=-1 (null) then the guarantee was not purchased.
+    #   We don't know whether or not it would have been returned,
+    #   but given that the dealer did not purchase, it may have been likely to have Returned=0.
+    # Assume:
+    # If Returned=-1 and DSEligible=0, then Returned_asm=1
+    # If Returned=-1 and DSEligible=1, then Returned_asm=0
+    logger.info(textwrap.dedent("""\
+        Returned_asm: Assume returned status to fill nulls as new feature.
+        If Returned=-1 and DSEligible=0, then Returned_asm=1 (assumes low P(resale|buyer, car))
+        If Returned=-1 and DSEligible=1, then Returned_asm=0 (assumes high P(resale|buyer, car))"""))
+    df['Returned_asm'] = df['Returned']
+    df.loc[
+        np.logical_and(df['Returned'] == -1, df['DSEligible'] == 0),
+        'Returned_asm'] = 1
+    df.loc[
+        np.logical_and(df['Returned'] == -1, df['DSEligible'] == 1),
+        'Returned_asm'] = 0
+    logger.info("Relationship between DSEligible and Returned:\n{pt}".format(
+        pt=pd.pivot_table(
+            df[['DSEligible', 'Returned']].astype(str),
+            index='DSEligible', columns='Returned',
+            aggfunc=len, margins=True, dropna=False)))
+    logger.info("Relationship between DSEligible and Returned_asm:\n{pt}".format(
+        pt=pd.pivot_table(
+            df[['DSEligible', 'Returned_asm']].astype(str),
+            index='DSEligible', columns='Returned_asm',
+            aggfunc=len, margins=True, dropna=False)))
+    logger.info("Relationship between Returned and Returned_asm:\n{pt}".format(
+        pt=pd.pivot_table(
+            df[['Returned', 'Returned_asm']].astype(str),
+            index='Returned', columns='Returned_asm',
+            aggfunc=len, margins=True, dropna=False)))
+    ########################################
+    # BuyerID, SellerID, VIN, SellingLocation, CarMake, JDPowersCat:
+    # Make cumulative informative priors (*_num*, *_frac*) for string features.
+    logger.info(textwrap.dedent("""\
+        BuyerID, SellerID, VIN, SellingLocation, CarMake, JDPowersCat:
+        Make cumulative informative priors (*_num*, *_frac*) for string features."""))
+    # Cumulative features require sorting by time.
+    df.sort_values(by=['SaleDate'], inplace=True)
+    df.reset_index(drop=True, inplace=True)
+    for col in ['BuyerID', 'SellerID', 'VIN', 'SellingLocation', 'CarMake', 'JDPowersCat']:
+        logger.info("Processing {col}".format(col=col))
+        ####################
+        # Cumulative count of transactions and DSEligible:
+        # Cumulative count of transactions (yes including current).
+        df[col+'_numTransactions'] = df[[col]].groupby(by=col).cumcount().astype(int) + 1
+        df[col+'_numTransactions'].fillna(value=1, inplace=True)
+        # Cumulative count of transations that were DealShield-eligible (yes including current).
+        df[col+'_numDSEligible1'] = df[[col, 'DSEligible']].groupby(by=col)['DSEligible'].cumsum().astype(int)
+        df[col+'_numDSEligible1'].fillna(value=0, inplace=True)
+        # Cumulative ratio of transactions that were DealShield-eligible (0=bad, 1=good).
+        df[col+'_fracDSEligible1DivTransactions'] = (df[col+'_numDSEligible1']/df[col+'_numTransactions'])
+        df[col+'_fracDSEligible1DivTransactions'].fillna(value=1, inplace=True)
+        ####################
+        # DSEligible and Returned
+        # Note:
+        # * DealShield-purchased ==> Returned != -1 (not null)
+        # * below requires
+        #     DSEligible == 0 ==> Returned == -1 (is null)
+        #     Returned != -1 (not null) ==> DSEligible == 1
+        assert (df.loc[df['DSEligible']==0, 'Returned'] == -1).all()
+        assert (df.loc[df['Returned']!=-1, 'DSEligible'] == 1).all()
+        # Cumulative count of transactions that were DealShield-eligible and DealShield-purchased.
+        df_tmp = df[[col, 'Returned']].copy()
+        df_tmp['ReturnedNotNull'] = df_tmp['Returned'] != -1
+        df[col+'_numReturnedNotNull'] = df_tmp[[col, 'ReturnedNotNull']].groupby(by=col)['ReturnedNotNull'].cumsum().astype(int)
+        df[col+'_numReturnedNotNull'].fillna(value=0, inplace=True)
+        del df_tmp
+        # Cumulative ratio of DealShield-eligible transactions that were DealShield-purchased (0=mode).
+        df[col+'_fracReturnedNotNullDivDSEligible1'] = df[col+'_numReturnedNotNull']/df[col+'_numDSEligible1']
+        df[col+'_fracReturnedNotNullDivDSEligible1'].fillna(value=0, inplace=True)
+        # Cumulative count of transactions that were DealShield-elegible and DealShield-purchased and DealShield-returned.
+        df_tmp = df[[col, 'Returned']].copy()
+        df_tmp['Returned1'] = df_tmp['Returned'] == 1
+        df[col+'_numReturned1'] = df_tmp[[col, 'Returned1']].groupby(by=col)['Returned1'].cumsum().astype(int)
+        df[col+'_numReturned1'].fillna(value=0, inplace=True)
+        del df_tmp
+        # Cumulative ratio of DealShield-eligible, DealShield-purchased transactions that were DealShield-returned (0=good, 1=bad).
+        # Note: BuyerID_fracReturned1DivReturnedNotNull is the cumulative return rate for a buyer.
+        df[col+'_fracReturned1DivReturnedNotNull'] = df[col+'_numReturned1']/df[col+'_numReturnedNotNull']
+        df[col+'_fracReturned1DivReturnedNotNull'].fillna(value=0, inplace=True)
+        # Check that weighted average of return rate equals overall return rate.
+        # Note: Requires groups sorted by date, ascending.
+        assert np.isclose(
+            (df[[col, col+'_fracReturned1DivReturnedNotNull', col+'_numReturnedNotNull']].groupby(by=col).last().product(axis=1).sum()/\
+             df[[col, col+'_numReturnedNotNull']].groupby(by=col).last().sum()).values[0],
+            sum(df['Returned']==1)/sum(df['Returned'] != -1),
+            equal_nan=True)
+        ####################
+        # DSEligible and Returned_asm
+        # NOTE:
+        # * Below requires
+        #     DSEligible == 0 ==> Returned_asm == 1
+        #     Returned_asm == 0 ==> DSEligible == 1
+        assert (df.loc[df['DSEligible']==0, 'Returned_asm'] == 1).all()
+        assert (df.loc[df['Returned_asm']==0, 'DSEligible'] == 1).all()
+        # Cumulative number of transactions that were assumed to be returned.
+        df_tmp = df[[col, 'Returned_asm']].copy()
+        df_tmp['Returnedasm1'] = df_tmp['Returned_asm'] == 1
+        df[col+'_numReturnedasm1'] = df_tmp[[col, 'Returnedasm1']].groupby(by=col)['Returnedasm1'].cumsum().astype(int)
+        df[col+'_numReturnedasm1'].fillna(value=0, inplace=True)
+        del df_tmp
+        # Cumulative ratio of transactions that were assumed to be returned (0=mode).
+        df[col+'_fracReturnedasm1DivTransactions'] = df[col+'_numReturnedasm1']/df[col+'_numTransactions']
+        df[col+'_fracReturnedasm1DivTransactions'].fillna(value=0, inplace=True)
+        # Check that weighted average of assumed return rate equals overall assumed return rate.
+        assert np.isclose(
+            (df[[col, col+'_fracReturnedasm1DivTransactions', col+'_numTransactions']].groupby(by=col).last().product(axis=1).sum()/\
+             df[[col, col+'_numTransactions']].groupby(by=col).last().sum()).values[0],
+            sum(df['Returned_asm']==1)/sum(df['Returned_asm'] != -1),
+            equal_nan=True)
+        # Note:
+        #   * Number of transactions that were DealShield-eligible and assumed to be returned ==
+        #     number of transactions that were DealShield-elegible and DealShield-purchased and DealShield-returned
+        #     (numReturned1)
+    return df
