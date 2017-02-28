@@ -954,7 +954,8 @@ def update_features(
 
 def update_features_append(
     df_prev:pd.DataFrame,
-    df_next:pd.DataFrame
+    df_next:pd.DataFrame,
+    debug:bool=False
     ) -> pd.DataFrame:
     r"""Update features and merge for timeseries training.
 
@@ -962,6 +963,9 @@ def update_features_append(
         df_prev (pandas.DataFrame): Dataframe of old data.
         df_next (pandas.DataFrame): Dataframe of new data to be updated
             and appended to df_prev.
+        debug (bool, optional, False): Flag to enforce assertions.
+            True: Execute assertions. Slower runtime by 3x.
+            False (default): Do not execute assertions. Faster runtime.
 
     Returns:
         df (pandas.DataFrame): Dataframe of updated, appended data.
@@ -1029,8 +1033,9 @@ def update_features_append(
         BuyerID, SellerID, VIN, SellingLocation, CarMake, JDPowersCat:
         Make cumulative informative priors (*_num*, *_frac*) for string features."""))
     # Cumulative features require sorting by time.
-    assert (df_prev['SaleDate'].diff().iloc[1:] >= np.timedelta64(0, 'D')).all()
-    assert (df_next['SaleDate'].diff().iloc[1:] >= np.timedelta64(0, 'D')).all()
+    if debug:
+        assert (df_prev['SaleDate'].diff().iloc[1:] >= np.timedelta64(0, 'D')).all()
+        assert (df_next['SaleDate'].diff().iloc[1:] >= np.timedelta64(0, 'D')).all()
     for col in ['BuyerID', 'SellerID', 'VIN', 'SellingLocation', 'CarMake', 'JDPowersCat']:
         logger.info("Processing {col}".format(col=col))
         prev_nums = df_prev.groupby(by=col).last()
@@ -1054,10 +1059,11 @@ def update_features_append(
         # * below requires
         #     DSEligible == 0 ==> Returned == -1 (is null)
         #     Returned != -1 (not null) ==> DSEligible == 1
-        assert (df_prev.loc[df_prev['DSEligible']==0, 'Returned'] == -1).all()
-        assert (df_prev.loc[df_prev['Returned']!=-1, 'DSEligible'] == 1).all()
-        assert (df_next.loc[df_next['DSEligible']==0, 'Returned'] == -1).all()
-        assert (df_next.loc[df_next['Returned']!=-1, 'DSEligible'] == 1).all()
+        if debug:
+            assert (df_prev.loc[df_prev['DSEligible']==0, 'Returned'] == -1).all()
+            assert (df_prev.loc[df_prev['Returned']!=-1, 'DSEligible'] == 1).all()
+            assert (df_next.loc[df_next['DSEligible']==0, 'Returned'] == -1).all()
+            assert (df_next.loc[df_next['Returned']!=-1, 'DSEligible'] == 1).all()
         # Cumulative count of transactions that were DealShield-eligible and DealShield-purchased.
         df_tmp = df_next[[col, 'Returned']].copy()
         df_tmp['ReturnedNotNull'] = df_tmp['Returned'] != -1
@@ -1081,23 +1087,25 @@ def update_features_append(
         df_next[col+'_fracReturned1DivReturnedNotNull'].fillna(value=0, inplace=True)
         # Check that weighted average of return rate equals overall return rate.
         # Note: Requires groups sorted by date, ascending.
-        df_tmp = df_prev.append(df_next)
-        assert np.isclose(
-            (df_tmp[[col, col+'_fracReturned1DivReturnedNotNull', col+'_numReturnedNotNull']].groupby(by=col).last().product(axis=1).sum()/\
-             df_tmp[[col, col+'_numReturnedNotNull']].groupby(by=col).last().sum()).values[0],
-            sum(df_tmp['Returned']==1)/sum(df_tmp['Returned'] != -1),
-            equal_nan=True)
-        del df_tmp
+        if debug:
+            df_tmp = df_prev.append(df_next)
+            assert np.isclose(
+                (df_tmp[[col, col+'_fracReturned1DivReturnedNotNull', col+'_numReturnedNotNull']].groupby(by=col).last().product(axis=1).sum()/\
+                 df_tmp[[col, col+'_numReturnedNotNull']].groupby(by=col).last().sum()).values[0],
+                sum(df_tmp['Returned']==1)/sum(df_tmp['Returned'] != -1),
+                equal_nan=True)
+            del df_tmp
         ####################
         # DSEligible and Returned_asm
         # NOTE:
         # * Below requires
         #     DSEligible == 0 ==> Returned_asm == 1
         #     Returned_asm == 0 ==> DSEligible == 1
-        assert (df_prev.loc[df_prev['DSEligible']==0, 'Returned_asm'] == 1).all()
-        assert (df_prev.loc[df_prev['Returned_asm']==0, 'DSEligible'] == 1).all()
-        assert (df_next.loc[df_next['DSEligible']==0, 'Returned_asm'] == 1).all()
-        assert (df_next.loc[df_next['Returned_asm']==0, 'DSEligible'] == 1).all()
+        if debug:
+            assert (df_prev.loc[df_prev['DSEligible']==0, 'Returned_asm'] == 1).all()
+            assert (df_prev.loc[df_prev['Returned_asm']==0, 'DSEligible'] == 1).all()
+            assert (df_next.loc[df_next['DSEligible']==0, 'Returned_asm'] == 1).all()
+            assert (df_next.loc[df_next['Returned_asm']==0, 'DSEligible'] == 1).all()
         # Cumulative number of transactions that were assumed to be returned.
         df_tmp = df_next[[col, 'Returned_asm']].copy()
         df_tmp['Returnedasm1'] = df_tmp['Returned_asm'] == 1
@@ -1109,13 +1117,14 @@ def update_features_append(
         df_next[col+'_fracReturnedasm1DivTransactions'] = df_next[col+'_numReturnedasm1']/df_next[col+'_numTransactions']
         df_next[col+'_fracReturnedasm1DivTransactions'].fillna(value=0, inplace=True)
         # Check that weighted average of assumed return rate equals overall assumed return rate.
-        df_tmp = df_prev.append(df_next)
-        assert np.isclose(
-            (df_tmp[[col, col+'_fracReturnedasm1DivTransactions', col+'_numTransactions']].groupby(by=col).last().product(axis=1).sum()/\
-             df_tmp[[col, col+'_numTransactions']].groupby(by=col).last().sum()).values[0],
-            sum(df_tmp['Returned_asm']==1)/sum(df_tmp['Returned_asm'] != -1),
-            equal_nan=True)
-        del df_tmp
+        if debug:
+            df_tmp = df_prev.append(df_next)
+            assert np.isclose(
+                (df_tmp[[col, col+'_fracReturnedasm1DivTransactions', col+'_numTransactions']].groupby(by=col).last().product(axis=1).sum()/\
+                 df_tmp[[col, col+'_numTransactions']].groupby(by=col).last().sum()).values[0],
+                sum(df_tmp['Returned_asm']==1)/sum(df_tmp['Returned_asm'] != -1),
+                equal_nan=True)
+            del df_tmp
         # Note:
         #   * Number of transactions that were DealShield-eligible and assumed to be returned ==
         #     number of transactions that were DealShield-elegible and DealShield-purchased and DealShield-returned
