@@ -41,6 +41,13 @@ plt.switch_backend('agg')
 sns.set()
 
 
+# Define globals
+# Return rates over 10% are considered excessive.
+buyer_retrate_max = 0.1
+# Return rate is ratio of Returned=1 to Returned not null.
+buyer_retrate = 'BuyerID_fracReturned1DivReturnedNotNull'
+
+
 def etl(
     df:pd.DataFrame
     ) -> pd.DataFrame:
@@ -440,12 +447,12 @@ def create_features(
     return df
 
 
-def plot_freq_dists(
+def plot_eda(
     df:pd.DataFrame,
     columns:list,
     path_plot_dir:str=None
     ) -> None:
-    r"""Plot frequency distributions of features.
+    r"""Make plots for exploratory data analysis (EDA).
 
     Args:
         df (pandas.DataFrame): Dataframe of formatted data.
@@ -456,7 +463,9 @@ def plot_freq_dists(
         None
 
     TODO:
-        * Plot with transaction is/isnot Returned_asm == 1; buyer is/isnot return rate > 0.1
+        * Plot with transaction is/isnot Returned_asm == 1;
+            buyer is/isnot return rate > buyer_retrate_max (buyer_retrate_max=0.1)
+
 
     """
     # Check inputs.
@@ -465,10 +474,13 @@ def plot_freq_dists(
             Path does not exist: path_plot_dir =
             {path}""".format(path=path_plot_dir)))
     # Plot frequency distributions.
+    print('#'*80)
+    print('Plot frequency distributions (histograms) of columns.')
     for col in columns:
-        print('#'*80)
+        print('#'*40)
         print('Feature: {col}'.format(col=col))
-        # ...by transaction
+        print('Timestamp:', time.strftime(r'%Y-%m-%dT%H:%M:%S%Z', time.gmtime()))
+        # Plot frequency distributions by transaction.
         sns.distplot(df[col].values, hist=True, kde=False, norm_hist=False)
         plt.title('{col}\nfrequency distribution'.format(col=col))
         plt.xlabel(col)
@@ -479,7 +491,7 @@ def plot_freq_dists(
                 os.path.join(path_plot_dir, 'freq-dist-transaction_'+col+'.png'),
                 dpi=300)
         plt.show()
-        # ...by buyer
+        # Plot frequency distributions by buyer.
         sns.distplot(df[['BuyerID', col]].groupby(by='BuyerID').mean(), hist=True, kde=False, norm_hist=False)
         plt.title('Mean {col} per buyer\nfrequency distribution'.format(col=col))
         plt.xlabel(col)
@@ -490,6 +502,115 @@ def plot_freq_dists(
                 os.path.join(path_plot_dir, 'freq-dist-buyer_'+col+'.png'),
                 dpi=300)
         plt.show()
+
+        # TEST
+        break
+
+    # Plot (timeseries) traces for fractional quantities vs fraction of completed transactions.
+    # Columns to plot: catgory (cat), <category>_numTransactions (trans), <category>_frac* (col)
+    print('#'*80)
+    print('Plot traces (timeseries) for fractional quantities vs fraction of completed transactions.')
+    plot_cols = list()
+    for col in df.columns:
+        if '_frac' in col:
+            cat = col.split('_frac')[0]
+            trans = cat+'_numTransactions'
+            plot_cols.append([cat, trans, col])
+    for (col_cat, col_trans, col_frac) in plot_cols:
+        print('#'*40)
+        print('Category column:    {col}'.format(col=col_cat))
+        print('Transaction column: {col}'.format(col=col_trans))
+        print('Fraction column:    {col}'.format(col=col_frac))
+        print('Timestamp:', time.strftime(r'%Y-%m-%dT%H:%M:%S%Z', time.gmtime()))
+        # Weight categorical values by number of transactions.       
+        assert (df[[col_cat, col_trans]].groupby(by=col_cat).last().sum() == len(df)).all()
+        cat_wts = df[[col_cat, col_trans]].groupby(by=col_cat).last()/len(df)
+        cat_wts.columns = [col_cat+'_wts']
+        cats = cat_wts.sample(n=30, replace=True, weights=col_cat+'_wts').index.values
+
+        # Make plot.
+        for idx in range(len(cats)):
+            cat = cats[idx]
+            tfmask = df[col_cat] == cat
+            xvals = (df.loc[tfmask, col_trans]/sum(tfmask)).values
+            yvals = df.loc[tfmask, col_frac].values
+            xvals_omax = (df.loc[np.logical_and(tfmask, df[buyer_retrate] > buyer_retrate_max), col_trans]/sum(tfmask)).values
+            yvals_omax = df.loc[np.logical_and(tfmask, df[buyer_retrate] > buyer_retrate_max), col_frac].values
+            if len(xvals) > 51: # downsample for speed
+                step = 1/50
+                xvals_resampled = np.arange(start=0, stop=1+step, step=step)
+                yvals_resampled = np.interp(x=xvals_resampled, xp=xvals, fp=yvals)
+                (xvals, yvals) = (xvals_resampled, yvals_resampled)
+            if len(xvals_omax) > 51: # downsample for speed
+                idxs_omax = np.random.choice(range(len(xvals_omax)), size=51, replace=False)
+                xvals_omax_resampled = xvals_omax[idxs_omax]
+                yvals_omax_resampled = yvals_omax[idxs_omax]
+                (xvals_omax, yvals_omax) = (xvals_omax_resampled, yvals_omax_resampled)
+            plt.plot(
+                xvals, yvals,
+                marker='.', alpha=0.05, color=sns.color_palette()[0])
+            if idx == 0:
+                label = 'Buyer return\nrate > {retrate:.0%}'.format(retrate=buyer_retrate_max)
+            else:
+                label = None
+            plt.plot(
+                xvals_omax, yvals_omax,
+                marker='o', alpha=0.1, linestyle='',
+                color=sns.color_palette()[2], label=label)
+        plt.title('{col_frac} vs\nfraction of transactions completed'.format(col_frac=col_frac))
+        plt.xlabel("Fraction of transactions completed")
+        plt.ylabel(col_frac)
+        plt.legend(loc='upper left', bbox_to_anchor=(1.0, 1.0))
+        rect = (0, 0, 0.85, 1)
+        plt.tight_layout(rect=rect)
+        if path_plot_dir is not None:
+            plt.savefig(
+                os.path.join(path_plot_dir, 'trace_'+col_frac+'.png'),
+                dpi=300)
+        plt.show()
+
+        # # Make plot.
+        # fig = plt.figure()
+        # ax = fig.add_subplot(111)
+        # ax.set_title('{col_frac} vs\nfraction of transactions completed'.format(col_frac=col_frac))
+        # for idx in range(len(cats)):
+        #     cat = cats[idx]
+        #     tfmask = df[col_cat] == cat
+        #     xvals = (df.loc[tfmask, col_trans]/sum(tfmask)).values
+        #     yvals = df.loc[tfmask, col_frac].values
+        #     xvals_omax = (df.loc[np.logical_and(tfmask, df[buyer_retrate] > buyer_retrate_max), col_trans]/sum(tfmask)).values
+        #     yvals_omax = df.loc[np.logical_and(tfmask, df[buyer_retrate] > buyer_retrate_max), col_frac].values
+        #     if len(xvals) > 51: # downsample for speed
+        #         step = 1/50
+        #         xvals_resampled = np.arange(start=0, stop=1+step, step=step)
+        #         yvals_resampled = np.interp(x=xvals_resampled, xp=xvals, fp=yvals)
+        #         (xvals, yvals) = (xvals_resampled, yvals_resampled)
+        #     if len(xvals_omax) > 51: # downsample for speed
+        #         idxs_omax = np.random.choice(range(len(xvals_omax)), size=51, replace=False)
+        #         xvals_omax_resampled = xvals_omax[idxs_omax]
+        #         yvals_omax_resampled = yvals_omax[idxs_omax]
+        #         (xvals_omax, yvals_omax) = (xvals_omax_resampled, yvals_omax_resampled)
+        #     ax.plot(
+        #         xvals, yvals,
+        #         marker='.', alpha=0.05, color=sns.color_palette()[0])
+        #     if idx == 0:
+        #         label = 'Buyer return\nrate > {retrate:.0%}'.format(retrate=buyer_retrate_max)
+        #     else:
+        #         label = None
+        #     ax.plot(
+        #         xvals_omax, yvals_omax,
+        #         marker='o', alpha=0.1, linestyle='',
+        #         color=sns.color_palette()[2], label=label)
+        # ax.set_xlabel("Fraction of transactions completed")
+        # ax.set_ylabel(col_frac)
+        # ax.legend(loc='upper left', bbox_to_anchor=(1.0, 1.0))
+        # plt.show(ax)
+
+
+        # TEST
+        break
+
+
     return None
 
 
@@ -507,6 +628,7 @@ def plot_heuristic(
         None
 
     TODO:
+        * Use stacked area chart instead of histogram, but requires aggregating by date.
         * Format xaxis with dates.
           2013.0 = 2013-01-01
           2013.2 = 2013-03-14
@@ -601,14 +723,14 @@ def plot_heuristic(
     # plt.show()
 
     # Plot timeseries histogram of Returned (1) vs SalesDate
-    # by BuyerID for BuyerIDs with return rate > 0.1.
-    buyer_retrate = 'BuyerID_fracReturned1DivReturnedNotNull'
+    # by BuyerID for BuyerIDs with return rate > buyer_retrate_max (buyer_retrate_max=0.1).
+    # buyer_retrate = 'BuyerID_fracReturned1DivReturnedNotNull'
     df_plot = df.loc[df['Returned']==1, ['SaleDate_decyear', 'BuyerID', buyer_retrate]].copy()
-    buyer_retrate_gt01 = buyer_retrate+'_gt01'
-    df_plot[buyer_retrate_gt01] = df_plot[buyer_retrate] > 0.1
+    buyer_retrate_omax = buyer_retrate+'_omax'
+    df_plot[buyer_retrate_omax] = df_plot[buyer_retrate] > buyer_retrate_max
     itemized_counts = {
-        gt01: collections.Counter(grp['SaleDate_decyear'])
-        for (gt01, grp) in df_plot.groupby(by=buyer_retrate_gt01)}
+        is_omax: collections.Counter(grp['SaleDate_decyear'])
+        for (is_omax, grp) in df_plot.groupby(by=buyer_retrate_omax)}
     itemized_counts = collections.OrderedDict(
         sorted(itemized_counts.items(), key=lambda tup: tup[0], reverse=False))
     keys = itemized_counts.keys()
@@ -621,7 +743,9 @@ def plot_heuristic(
     plt.title('Returned vs SaleDate\nby buyer return rate')
     plt.xlabel('SaleDate (decimal year)')
     plt.ylabel('Number of transactions with Returned = 1\nand buyer return rate = <rate>')
-    plt.legend(title='Buyer return\nrate > 10%', loc='upper left', bbox_to_anchor=(1.0, 1.0))
+    plt.legend(
+        title='Buyer return\nrate > {retrate:.0%}'.format(retrate=buyer_retrate_max),
+        loc='upper left', bbox_to_anchor=(1.0, 1.0))
     plt.tight_layout(rect=rect)
     if path_plot_dir is not None:
         plt.savefig(
@@ -631,10 +755,10 @@ def plot_heuristic(
 
     # Plot frequency distribution of return rates per BuyerID
     df_plot = df[['BuyerID', buyer_retrate]].copy()
-    df_plot[buyer_retrate_gt01] = df_plot[buyer_retrate] > 0.1
+    df_plot[buyer_retrate_omax] = df_plot[buyer_retrate] > buyer_retrate_max
     itemized_counts = {
-        gt01: grp[['BuyerID', buyer_retrate]].groupby(by='BuyerID').mean().values.flatten()
-        for (gt01, grp) in df_plot.groupby(by=buyer_retrate_gt01)}
+        is_omax: grp[['BuyerID', buyer_retrate]].groupby(by='BuyerID').mean().values.flatten()
+        for (omax, grp) in df_plot.groupby(by=buyer_retrate_omax)}
     itemized_counts = collections.OrderedDict(
         sorted(itemized_counts.items(), key=lambda tup: tup[0], reverse=False))
     keys = itemized_counts.keys()
@@ -646,12 +770,13 @@ def plot_heuristic(
     plt.title('Return rates per buyer\nfrequency distribution')
     plt.xlabel('Return rate')
     plt.ylabel('Number of buyers with\nreturn rate = X')
-    plt.legend(title='Buyer return\nrate > 10%', loc='upper left', bbox_to_anchor=(1.0, 1.0))
+    plt.legend(
+        title='Buyer return\nrate > {retrate:.0%}'.format(retrate=buyer_retrate_max),
+        loc='upper left', bbox_to_anchor=(1.0, 1.0))
     plt.tight_layout(rect=rect)
     if path_plot_dir is not None:
         plt.savefig(
             os.path.join(path_plot_dir, 'heuristic3_returnrate_freq-dist-buyer_by_returnrate.png'),
             dpi=300)
     plt.show()
-
     return None
