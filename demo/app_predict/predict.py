@@ -27,7 +27,14 @@ from .. import utils
 
 
 # Define module exports:
-__all__ = ['etl']
+__all__ = [
+    'etl',
+    'create_features',
+    'plot_eda',
+    'plot_heursitic',
+    'update_features',
+    'update_features_append',
+    'create_features_new_data']
 
 
 # Define state settings and globals.
@@ -71,36 +78,39 @@ def etl(
     # DSEligible, Returned: Fix DSEligible == 0 but Returned not null
     # Some vehicles have DSEligible=0 but have Returned!=nan due to errors or extenuating circumstances.
     # To correct: If Returned!=nan, then DSEligible=1
-    logger.info(textwrap.dedent("""\
-        DSEligible, Returned: Fix DSEligible == 0 but Returned not null.
-        To correct: If Returned not null, then DSEligible = 1."""))
-    logger.info("Before:\n{pt}".format(
-        pt=pd.pivot_table(
-            df[['DSEligible', 'Returned']].astype(str),
-            index='DSEligible', columns='Returned',
-            aggfunc=len, margins=True, dropna=False)))
-    df.loc[df['Returned'].notnull(), 'DSEligible'] = 1
-    logger.info("After:\n{pt}".format(
-        pt=pd.pivot_table(
-            df[['DSEligible', 'Returned']].astype(str),
-            index='DSEligible', columns='Returned',
-            aggfunc=len, margins=True, dropna=False)))
+    # Note: Skip if cleaning new data for which Returned is unknown.
+    if 'Returned' in df.columns:
+        logger.info(textwrap.dedent("""\
+            DSEligible, Returned: Fix DSEligible == 0 but Returned not null.
+            To correct: If Returned not null, then DSEligible = 1."""))
+        logger.info("Before:\n{pt}".format(
+            pt=pd.pivot_table(
+                df[['DSEligible', 'Returned']].astype(str),
+                index='DSEligible', columns='Returned',
+                aggfunc=len, margins=True, dropna=False)))
+        df.loc[df['Returned'].notnull(), 'DSEligible'] = 1
+        logger.info("After:\n{pt}".format(
+            pt=pd.pivot_table(
+                df[['DSEligible', 'Returned']].astype(str),
+                index='DSEligible', columns='Returned',
+                aggfunc=len, margins=True, dropna=False)))
     ########################################
     # Returned: fill nulls
-    # NOTE: THIS TRANSFORMATION MUST BE BEFORE FEATURE CREATION SINCE Returned.isnull() -> -1
     # Fill null values with -1 and cast to int.
-    logger.info('Returned: Fill nulls with -1 and cast to int.')
-    logger.info("Before:\n{pt}".format(
-        pt=pd.pivot_table(
-            df[['DSEligible', 'Returned']].astype(str),
-            index='DSEligible', columns='Returned',
-            aggfunc=len, margins=True, dropna=False)))
-    df['Returned'] = df[['Returned']].fillna(value=-1).astype(int)
-    logger.info("After:\n{pt}".format(
-        pt=pd.pivot_table(
-            df[['DSEligible', 'Returned']].astype(str),
-            index='DSEligible', columns='Returned',
-            aggfunc=len, margins=True, dropna=False)))
+    # Note: Skip if cleaning new data for which Returned is unknown.
+    if 'Returned' in df.columns:
+        logger.info('Returned: Fill nulls with -1 and cast to int.')
+        logger.info("Before:\n{pt}".format(
+            pt=pd.pivot_table(
+                df[['DSEligible', 'Returned']].astype(str),
+                index='DSEligible', columns='Returned',
+                aggfunc=len, margins=True, dropna=False)))
+        df['Returned'] = df[['Returned']].fillna(value=-1).astype(int)
+        logger.info("After:\n{pt}".format(
+            pt=pd.pivot_table(
+                df[['DSEligible', 'Returned']].astype(str),
+                index='DSEligible', columns='Returned',
+                aggfunc=len, margins=True, dropna=False)))
     ########################################
     # BuyerID, SellerID, VIN, SellingLocation, CarMake, JDPowersCat:
     # Cast to strings as categorical features.
@@ -1131,3 +1141,258 @@ def update_features_append(
         #     (numReturned1)
     # Return updated, appended dataframe.
     return df_prev.append(df_next)
+
+
+def create_features_new_data(
+    df_prev:pd.DataFrame,
+    df_next:pd.DataFrame,
+    path_data_dir:str,
+    debug:bool=False
+    ) -> pd.DataFrame:
+    r"""Create features for post-ETL data.
+
+    Args:
+        df_prev (pandas.DataFrame): Dataframe of old data.
+        df_next (pandas.DataFrame): Dataframe of new data with missing target column
+            ('Returned') for which features are extracted.
+        path_data_dir (str): Path to data directory for caching geocode shelf file.
+        debug (bool, optional, False): Flag to enforce assertions.
+            True: Execute assertions. Slower runtime by 3x.
+            False (default): Do not execute assertions. Faster runtime.
+
+    Returns:
+        df (pandas.DataFrame): Dataframe of extracted data.
+
+    See Also:
+        etl
+
+    Notes:
+        * BuyerID_fracReturned1DivReturnedNotNull is the return rate for a buyer.
+        * df_prev and df_next have overlapping indexes.
+
+    TODO:
+        * Modularize script into separate helper functions.
+        * Modify dataframe in place
+
+    """
+    # Check input.
+    # Copy dataframe to avoid in place modification.
+    (df_prev, df_next) = (df_prev.copy(), df_next.copy())
+    # Check file path.
+    if not os.path.exists(path_data_dir):
+        raise IOError(textwrap.dedent("""\
+            Path does not exist:
+            path_data_dir = {path}""".format(
+                path=path_data_dir)))
+    ########################################
+    # Returned_asm
+    # Interpretation of assumptions:
+    # If DSEligible=0, then the vehicle is not eligible for a guarantee.
+    # * And Returned=-1 (null) since we don't know whether or not it would have been returned,
+    #   but given that it wasn't eligible, it may have been likely to have Returned=1.
+    # If DSEligible=1, then the vehicle is eligible for a guarantee.
+    # * And if Returned=0 then the guarantee was purchased and the vehicle was not returned.
+    # * And if Returned=1 then the guarantee was purchased and the vehicle was returned.
+    # * And if Returned=-1 (null) then the guarantee was not purchased.
+    #   We don't know whether or not it would have been returned,
+    #   but given that the dealer did not purchase, it may have been likely to have Returned=0.
+    # Assume:
+    #   If Returned=-1 and DSEligible=0, then Returned_asm=1
+    #   If Returned=-1 and DSEligible=1, then Returned_asm=0
+    # For new data:
+    #   If DSEligible=0, then Returned=-1, then Returned_asm=1
+    #   If DSEligible=1, then Returned_asm is the average of the buyer's Returned_asm, or if new buyer, then 0.
+    logger.info(textwrap.dedent("""\
+        Returned_asm: Assume returned status to fill nulls as new feature.
+        If Returned=-1 and DSEligible=0, then Returned_asm=1 (assumes low P(resale|buyer, car))
+        If Returned=-1 and DSEligible=1, then Returned_asm=0 (assumes high P(resale|buyer, car))"""))
+    logger.info(textwrap.dedent("""\
+        For new data:
+        If DSEligible=0, then Returned=-1, then Returned_asm=1
+        If DSEligible=1, then Returned_asm is the average of the buyer's Returned_asm, or if new buyer, then 0."""))
+    df_next.loc[df_next['DSEligible']==0, 'Returned_asm'] = 1
+    prev_nums = df_prev.loc[df_prev['DSEligible']==1, ['BuyerID', 'Returned_asm']].groupby(by='BuyerID').mean()
+    df_next.loc[df_next['DSEligible']==1, 'Returned_asm'] = \
+        df_next.loc[df_next['DSEligible']==1, 'BuyerID'].map(prev_nums['Returned_asm']).fillna(value=0)
+    ########################################
+    # SellingLocation_lat, SellingLocation_lon
+    # Cell takes ~1 min to execute if shelf does not exist.
+    # Google API limit: https://developers.google.com/maps/documentation/geocoding/usage-limits
+    logger.info(textwrap.dedent("""\
+        SellingLocation: Geocode.
+        Scraping webpages for addresses and looking up latitude, longitude coordinates."""))
+    path_shelf = os.path.join(path_data_dir, 'sellloc_geoloc.shelf')
+    seconds_per_query = 1.0/50.0 # Google API limit
+    sellloc_geoloc = dict()
+    with shelve.open(filename=path_shelf, flag='c') as shelf:
+        for loc in df_next['SellingLocation'].unique():
+            if loc in shelf:
+                raw = shelf[loc]
+                if raw is None:
+                    location = raw
+                else:
+                    address = raw['formatted_address']
+                    latitude = raw['geometry']['location']['lat']
+                    longitude = raw['geometry']['location']['lng']
+                    location = geopy.location.Location(
+                        address=address, point=(latitude, longitude), raw=raw)
+            else:        
+                url = r'https://www.manheim.com/locations/{loc}/events'.format(loc=loc)
+                page = requests.get(url)
+                tree = bs4.BeautifulSoup(page.text, 'lxml')
+                address = tree.find(name='p', class_='loc_address').get_text().strip()
+                try:
+                    components = {
+                        'country': 'United States',
+                        'postal_code': address.split()[-1]}
+                    location = geopy.geocoders.GoogleV3().geocode(
+                        query=address,
+                        exactly_one=True,
+                        components=components)
+                except:
+                    logger.warning(textwrap.dedent("""\
+                        Exception raised. Setting {loc} geo location to `None`
+                        sys.exc_info() =
+                        {exc}""".format(loc=loc, exc=sys.exc_info())))
+                    location = None
+                finally:
+                    time.sleep(seconds_per_query)
+                    if location is None:
+                        shelf[loc] = location
+                    else:
+                        shelf[loc] = location.raw
+            sellloc_geoloc[loc] = location
+    logger.info("Mapping SellingLocation to latitude, longitude coordinates.")
+    sellloc_lat = {
+        sellloc: (geoloc.latitude if geoloc is not None else 0.0)
+        for (sellloc, geoloc) in sellloc_geoloc.items()}
+    sellloc_lon = {
+        sellloc: (geoloc.longitude if geoloc is not None else 0.0)
+        for (sellloc, geoloc) in sellloc_geoloc.items()}
+    df_next['SellingLocation_lat'] = df_next['SellingLocation'].map(sellloc_lat)
+    df_next['SellingLocation_lon'] = df_next['SellingLocation'].map(sellloc_lon)
+    # # TODO: experiment with one-hot encoding (problems is that it doesn't scale)
+    # df_next = pd.merge(
+    #     left=df_next,
+    #     right=pd.get_dummies(df_next['SellingLocation'], prefix='SellingLocation'),
+    #     how='inner',
+    #     left_index=True,
+    #     right_index=True)
+    ########################################
+    # JDPowersCat: One-hot encoding
+    # TODO: Estimate sizes from Wikipedia, e.g. https://en.wikipedia.org/wiki/Vehicle_size_class.
+    logger.info("JDPowersCat: One-hot encoding.")
+    # Cast to string, replacing 'nan' with 'UNKNOWN'.
+    df_next['JDPowersCat'] = (df_next['JDPowersCat'].astype(str)).str.replace(' ', '').apply(
+        lambda cat: 'UNKNOWN' if cat == 'nan' else cat)
+    # One-hot encoding.
+    df_next = pd.merge(
+        left=df_next,
+        right=pd.get_dummies(df_next['JDPowersCat'], prefix='JDPowersCat'),
+        left_index=True,
+        right_index=True)
+    ########################################
+    # LIGHT_N0G1Y2R3
+    # Rank lights by warning level.
+    logger.info("LIGHT_N0G1Y2R3: Rank lights by warning level (null=0, green=1, yellow=2, red=3).")
+    df_next['LIGHT_N0G1Y2R3'] = df_next['LIGHTG']*1 + df_next['LIGHTY']*2 + df_next['LIGHTR']*3
+    ########################################
+    # SaleDate_*: Extract timeseries features.
+    logger.info("SaleDate: Extract timeseries features.")
+    df_next['SaleDate_dow'] = df_next['SaleDate'].dt.dayofweek
+    df_next['SaleDate_doy'] = df_next['SaleDate'].dt.dayofyear
+    df_next['SaleDate_day'] = df_next['SaleDate'].dt.day
+    df_next['SaleDate_decyear'] = df_next['SaleDate'].dt.year + (df_next['SaleDate'].dt.dayofyear-1)/366
+    ########################################
+    # BuyerID, SellerID, VIN, SellingLocation, CarMake, JDPowersCat:
+    # Make cumulative informative priors (*_num*, *_frac*) for string features.
+    logger.info(textwrap.dedent("""\
+        BuyerID, SellerID, VIN, SellingLocation, CarMake, JDPowersCat:
+        Make cumulative informative priors (*_num*, *_frac*) for string features."""))
+    # Cumulative features require sorting by time.
+    # Note: df_prev and df_next have overlapping indexes after `reset_index`.
+    df_next.sort_values(by=['SaleDate'], inplace=True)
+    df_next.reset_index(drop=True, inplace=True)
+    if debug:
+        assert (df_prev['SaleDate'].diff().iloc[1:] >= np.timedelta64(0, 'D')).all()
+        assert (df_next['SaleDate'].diff().iloc[1:] >= np.timedelta64(0, 'D')).all()
+    for col in ['BuyerID', 'SellerID', 'VIN', 'SellingLocation', 'CarMake', 'JDPowersCat']:
+        logger.info("Processing {col}".format(col=col))
+        prev_nums = df_prev.groupby(by=col).last()
+        ####################
+        # Cumulative count of transactions and DSEligible:
+        # Cumulative count of transactions (yes including current).
+        df_next[col+'_numTransactions'] = df_next[[col]].groupby(by=col).cumcount().astype(int) + 1
+        df_next[col+'_numTransactions'].fillna(value=1, inplace=True)
+        df_next[col+'_numTransactions'] += df_next[col].map(prev_nums[col+'_numTransactions']).fillna(value=0)
+        # Cumulative count of transations that were DealShield-eligible (yes including current).
+        df_next[col+'_numDSEligible1'] = df_next[[col, 'DSEligible']].groupby(by=col)['DSEligible'].cumsum().astype(int)
+        df_next[col+'_numDSEligible1'].fillna(value=0, inplace=True)
+        df_next[col+'_numDSEligible1'] += df_next[col].map(prev_nums[col+'_numDSEligible1']).fillna(value=0)
+        # Cumulative ratio of transactions that were DealShield-eligible (0=bad, 1=good).
+        df_next[col+'_fracDSEligible1DivTransactions'] = df_next[col+'_numDSEligible1']/df_next[col+'_numTransactions']
+        df_next[col+'_fracDSEligible1DivTransactions'].fillna(value=1, inplace=True)
+        ####################
+        # DSEligible and Returned
+        # Note:
+        # * DealShield-purchased ==> Returned != -1 (not null)
+        # * below requires
+        #     DSEligible == 0 ==> Returned == -1 (is null)
+        #     Returned != -1 (not null) ==> DSEligible == 1
+        if debug:
+            assert (df_prev.loc[df_prev['DSEligible']==0, 'Returned'] == -1).all()
+            assert (df_prev.loc[df_prev['Returned']!=-1, 'DSEligible'] == 1).all()
+        # Cumulative count of transactions that were DealShield-eligible and DealShield-purchased.
+        df_next[col+'_numReturnedNotNull'] = df_next[col].map(prev_nums[col+'_numReturnedNotNull']).fillna(value=0)
+        # Cumulative ratio of DealShield-eligible transactions that were DealShield-purchased (0=mode).
+        df_next[col+'_fracReturnedNotNullDivDSEligible1'] = df_next[col+'_numReturnedNotNull']/df_next[col+'_numDSEligible1']
+        df_next[col+'_fracReturnedNotNullDivDSEligible1'].fillna(value=0, inplace=True)
+        # Cumulative count of transactions that were DealShield-elegible and DealShield-purchased and DealShield-returned.
+        df_next[col+'_numReturned1'] = df_next[col].map(prev_nums[col+'_numReturned1']).fillna(value=0)
+        # Cumulative ratio of DealShield-eligible, DealShield-purchased transactions that were DealShield-returned (0=good, 1=bad).
+        # Note: BuyerID_fracReturned1DivReturnedNotNull is the cumulative return rate for a buyer.
+        df_next[col+'_fracReturned1DivReturnedNotNull'] = df_next[col+'_numReturned1']/df_next[col+'_numReturnedNotNull']
+        df_next[col+'_fracReturned1DivReturnedNotNull'].fillna(value=0, inplace=True)
+        # Check that weighted average of return rate equals overall return rate.
+        # Note: Requires groups sorted by date, ascending.
+        if debug:
+            assert np.isclose(
+                (df_prev[[col, col+'_fracReturned1DivReturnedNotNull', col+'_numReturnedNotNull']].groupby(by=col).last().product(axis=1).sum()/\
+                 df_prev[[col, col+'_numReturnedNotNull']].groupby(by=col).last().sum()).values[0],
+                sum(df_prev['Returned']==1)/sum(df_prev['Returned'] != -1),
+                equal_nan=True)
+        ####################
+        # DSEligible and Returned_asm
+        # NOTE:
+        # * Below requires
+        #     DSEligible == 0 ==> Returned_asm == 1
+        #     Returned_asm == 0 ==> DSEligible == 1
+        if debug:
+            assert (df_prev.loc[df_prev['DSEligible']==0, 'Returned_asm'] == 1).all()
+            assert (df_prev.loc[df_prev['Returned_asm']==0, 'DSEligible'] == 1).all()
+            assert (df_next.loc[df_next['DSEligible']==0, 'Returned_asm'] == 1).all()
+            assert (df_next.loc[df_next['Returned_asm']==0, 'DSEligible'] == 1).all()
+        # Cumulative number of transactions that were assumed to be returned.
+        # Note: For new data, 'Returned_asm' may be a float.
+        df_tmp = df_next[[col, 'Returned_asm']].copy()
+        df_tmp['Returnedasm1'] = df_tmp['Returned_asm']
+        df_next[col+'_numReturnedasm1'] = df_tmp[[col, 'Returnedasm1']].groupby(by=col)['Returnedasm1'].cumsum()
+        df_next[col+'_numReturnedasm1'].fillna(value=0, inplace=True)
+        df_next[col+'_numReturnedasm1'] += df_next[col].map(prev_nums[col+'_numReturnedasm1']).fillna(value=0)
+        del df_tmp
+        # Cumulative ratio of transactions that were assumed to be returned (0=mode).
+        df_next[col+'_fracReturnedasm1DivTransactions'] = df_next[col+'_numReturnedasm1']/df_next[col+'_numTransactions']
+        df_next[col+'_fracReturnedasm1DivTransactions'].fillna(value=0, inplace=True)
+        # Check that weighted average of assumed return rate equals overall assumed return rate.
+        if debug:
+            assert np.isclose(
+                (df_prev[[col, col+'_fracReturnedasm1DivTransactions', col+'_numTransactions']].groupby(by=col).last().product(axis=1).sum()/\
+                 df_prev[[col, col+'_numTransactions']].groupby(by=col).last().sum()).values[0],
+                sum(df_prev['Returned_asm']==1)/sum(df_prev['Returned_asm'] != -1),
+                equal_nan=True)
+        # Note:
+        #   * Number of transactions that were DealShield-eligible and assumed to be returned ==
+        #     number of transactions that were DealShield-elegible and DealShield-purchased and DealShield-returned
+        #     (numReturned1)
+    return df_next
+
