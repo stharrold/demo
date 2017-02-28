@@ -473,6 +473,7 @@ def plot_eda(
         raise IOError(textwrap.dedent("""\
             Path does not exist: path_plot_dir =
             {path}""".format(path=path_plot_dir)))
+    ################################################################################
     # Plot frequency distributions.
     print('#'*80)
     print('Plot frequency distributions (histograms) of columns.')
@@ -502,10 +503,7 @@ def plot_eda(
                 os.path.join(path_plot_dir, 'freq-dist-buyer_'+col+'.png'),
                 dpi=300)
         plt.show()
-
-        # TEST
-        break
-
+    ################################################################################
     # Plot (timeseries) traces for fractional quantities vs fraction of completed transactions.
     # Columns to plot: catgory (cat), <category>_numTransactions (trans), <category>_frac* (col)
     print('#'*80)
@@ -527,7 +525,6 @@ def plot_eda(
         cat_wts = df[[col_cat, col_trans]].groupby(by=col_cat).last()/len(df)
         cat_wts.columns = [col_cat+'_wts']
         cats = cat_wts.sample(n=30, replace=True, weights=col_cat+'_wts').index.values
-
         # Make plot.
         for idx in range(len(cats)):
             cat = cats[idx]
@@ -548,69 +545,26 @@ def plot_eda(
                 (xvals_omax, yvals_omax) = (xvals_omax_resampled, yvals_omax_resampled)
             plt.plot(
                 xvals, yvals,
-                marker='.', alpha=0.05, color=sns.color_palette()[0])
+                marker='.', alpha=0.1, color=sns.color_palette()[0])
             if idx == 0:
                 label = 'Buyer return\nrate > {retrate:.0%}'.format(retrate=buyer_retrate_max)
             else:
                 label = None
             plt.plot(
                 xvals_omax, yvals_omax,
-                marker='o', alpha=0.1, linestyle='',
+                marker='o', alpha=0.2, linestyle='',
                 color=sns.color_palette()[2], label=label)
         plt.title('{col_frac} vs\nfraction of transactions completed'.format(col_frac=col_frac))
         plt.xlabel("Fraction of transactions completed")
         plt.ylabel(col_frac)
         plt.legend(loc='upper left', bbox_to_anchor=(1.0, 1.0))
-        rect = (0, 0, 0.85, 1)
+        rect = (0, 0, 0.80, 1)
         plt.tight_layout(rect=rect)
         if path_plot_dir is not None:
             plt.savefig(
                 os.path.join(path_plot_dir, 'trace_'+col_frac+'.png'),
                 dpi=300)
         plt.show()
-
-        # # Make plot.
-        # fig = plt.figure()
-        # ax = fig.add_subplot(111)
-        # ax.set_title('{col_frac} vs\nfraction of transactions completed'.format(col_frac=col_frac))
-        # for idx in range(len(cats)):
-        #     cat = cats[idx]
-        #     tfmask = df[col_cat] == cat
-        #     xvals = (df.loc[tfmask, col_trans]/sum(tfmask)).values
-        #     yvals = df.loc[tfmask, col_frac].values
-        #     xvals_omax = (df.loc[np.logical_and(tfmask, df[buyer_retrate] > buyer_retrate_max), col_trans]/sum(tfmask)).values
-        #     yvals_omax = df.loc[np.logical_and(tfmask, df[buyer_retrate] > buyer_retrate_max), col_frac].values
-        #     if len(xvals) > 51: # downsample for speed
-        #         step = 1/50
-        #         xvals_resampled = np.arange(start=0, stop=1+step, step=step)
-        #         yvals_resampled = np.interp(x=xvals_resampled, xp=xvals, fp=yvals)
-        #         (xvals, yvals) = (xvals_resampled, yvals_resampled)
-        #     if len(xvals_omax) > 51: # downsample for speed
-        #         idxs_omax = np.random.choice(range(len(xvals_omax)), size=51, replace=False)
-        #         xvals_omax_resampled = xvals_omax[idxs_omax]
-        #         yvals_omax_resampled = yvals_omax[idxs_omax]
-        #         (xvals_omax, yvals_omax) = (xvals_omax_resampled, yvals_omax_resampled)
-        #     ax.plot(
-        #         xvals, yvals,
-        #         marker='.', alpha=0.05, color=sns.color_palette()[0])
-        #     if idx == 0:
-        #         label = 'Buyer return\nrate > {retrate:.0%}'.format(retrate=buyer_retrate_max)
-        #     else:
-        #         label = None
-        #     ax.plot(
-        #         xvals_omax, yvals_omax,
-        #         marker='o', alpha=0.1, linestyle='',
-        #         color=sns.color_palette()[2], label=label)
-        # ax.set_xlabel("Fraction of transactions completed")
-        # ax.set_ylabel(col_frac)
-        # ax.legend(loc='upper left', bbox_to_anchor=(1.0, 1.0))
-        # plt.show(ax)
-
-
-        # TEST
-        break
-
-
     return None
 
 
