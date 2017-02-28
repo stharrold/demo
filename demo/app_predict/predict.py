@@ -820,6 +820,7 @@ def update_features(
     TODO:
         * Modularize script into separate helper functions.
         * Modify dataframe in place
+        * Separate into df_prev, df_next; update df_next, combine
 
     """
     # Check input.
@@ -873,8 +874,7 @@ def update_features(
         BuyerID, SellerID, VIN, SellingLocation, CarMake, JDPowersCat:
         Make cumulative informative priors (*_num*, *_frac*) for string features."""))
     # Cumulative features require sorting by time.
-    df.sort_values(by=['SaleDate'], inplace=True)
-    df.reset_index(drop=True, inplace=True)
+    assert (df['SaleDate'].diff().iloc[1:] >= np.timedelta64(0, 'D')).all()
     for col in ['BuyerID', 'SellerID', 'VIN', 'SellingLocation', 'CarMake', 'JDPowersCat']:
         logger.info("Processing {col}".format(col=col))
         ####################
