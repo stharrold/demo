@@ -462,11 +462,6 @@ def plot_eda(
     Returns:
         None
 
-    TODO:
-        * Plot with transaction is/isnot Returned_asm == 1;
-            buyer is/isnot return rate > buyer_retrate_max (buyer_retrate_max=0.1)
-
-
     """
     # Check inputs.
     if not os.path.exists(path_plot_dir):
@@ -482,27 +477,56 @@ def plot_eda(
         print('Feature: {col}'.format(col=col))
         print('Timestamp:', time.strftime(r'%Y-%m-%dT%H:%M:%S%Z', time.gmtime()))
         # Plot frequency distributions by transaction.
-        sns.distplot(df[col].values, hist=True, kde=False, norm_hist=False)
+        df_plot = df[['BuyerID', col, buyer_retrate]].copy()
+        buyer_retrate_omax = buyer_retrate+'_omax'
+        df_plot[buyer_retrate_omax] = df_plot[buyer_retrate] > buyer_retrate_max
+        itemized_counts = {
+            is_omax: grp[col].values
+            for (is_omax, grp) in df_plot.groupby(by=buyer_retrate_omax)}
+        itemized_counts = collections.OrderedDict(
+            sorted(itemized_counts.items(), key=lambda tup: tup[0], reverse=False))
+        keys = itemized_counts.keys()
+        bins = 50
+        colors = sns.light_palette(sns.color_palette()[2], n_colors=len(keys))
+        plt.hist(
+            [itemized_counts[key] for key in itemized_counts.keys()],
+            bins=bins, stacked=True, rwidth=1.0, label=keys, color=colors)
         plt.title('{col}\nfrequency distribution'.format(col=col))
         plt.xlabel(col)
         plt.ylabel('Number of transactions with\n{col} = X'.format(col=col))
-        plt.tight_layout()
+        plt.legend(
+            title='Buyer return\nrate > {retrate:.0%}'.format(retrate=buyer_retrate_max),
+            loc='upper left', bbox_to_anchor=(1.0, 1.0))
+        rect = (0, 0, 0.85, 1)
+        plt.tight_layout(rect=rect)
         if path_plot_dir is not None:
             plt.savefig(
                 os.path.join(path_plot_dir, 'freq-dist-transaction_'+col+'.png'),
                 dpi=300)
         plt.show()
         # Plot frequency distributions by buyer.
-        sns.distplot(df[['BuyerID', col]].groupby(by='BuyerID').mean(), hist=True, kde=False, norm_hist=False)
+        itemized_counts = {
+            is_omax: grp[['BuyerID', col]].groupby(by='BuyerID').mean().values.flatten()
+            for (is_omax, grp) in df_plot.groupby(by=buyer_retrate_omax)}
+        itemized_counts = collections.OrderedDict(
+            sorted(itemized_counts.items(), key=lambda tup: tup[0], reverse=False))
+        keys = itemized_counts.keys()
+        plt.hist(
+            [itemized_counts[key] for key in itemized_counts.keys()],
+            bins=bins, stacked=True, rwidth=1.0, label=keys, color=colors)
         plt.title('Mean {col} per buyer\nfrequency distribution'.format(col=col))
-        plt.xlabel(col)
-        plt.ylabel('Number of buyers with\n{col} = X'.format(col=col))
-        plt.tight_layout()
+        plt.xlabel('Mean '+col)
+        plt.ylabel('Number of buyers with\nmean {col} = X'.format(col=col))
+        plt.legend(
+            title='Buyer return\nrate > {retrate:.0%}'.format(retrate=buyer_retrate_max),
+            loc='upper left', bbox_to_anchor=(1.0, 1.0))
+        plt.tight_layout(rect=rect)
         if path_plot_dir is not None:
             plt.savefig(
                 os.path.join(path_plot_dir, 'freq-dist-buyer_'+col+'.png'),
                 dpi=300)
         plt.show()
+
     ################################################################################
     # Plot (timeseries) traces for fractional quantities vs fraction of completed transactions.
     # Columns to plot: catgory (cat), <category>_numTransactions (trans), <category>_frac* (col)
@@ -598,6 +622,7 @@ def plot_heuristic(
             {path}""".format(path=path_plot_dir)))
 
     # Plot timeseries histogram of Returned vs SalesDate.
+    # Bins represent weeks.
     df_plot = df[['SaleDate_decyear', 'Returned']].copy()
     itemized_counts = {
         ret: collections.Counter(grp['SaleDate_decyear'])
@@ -605,7 +630,7 @@ def plot_heuristic(
     itemized_counts = collections.OrderedDict(
         sorted(itemized_counts.items(), key=lambda tup: tup[0], reverse=True))
     keys = itemized_counts.keys()
-    bins = int(np.ceil((df_plot['SaleDate_decyear'].max() - df_plot['SaleDate_decyear'].min())/(1.0/52.0)))
+    bins = int(np.ceil((df_plot['SaleDate_decyear'].max() - df_plot['SaleDate_decyear'].min())*52))
     colors = sns.color_palette(n_colors=len(keys))[::-1]
     plt.hist(
         [list(itemized_counts[key].elements()) for key in itemized_counts.keys()],
@@ -625,6 +650,7 @@ def plot_heuristic(
     plt.show()
 
     # Plot timeseries histogram of Returned (0,1) vs SalesDate.
+    # Bins represent weeks.
     df_plot = df.loc[df['Returned']!=-1, ['SaleDate_decyear', 'Returned']].copy()
     itemized_counts = {
         ret: collections.Counter(grp['SaleDate_decyear'])
@@ -632,7 +658,7 @@ def plot_heuristic(
     itemized_counts = collections.OrderedDict(
         sorted(itemized_counts.items(), key=lambda tup: tup[0], reverse=True))
     keys = itemized_counts.keys()
-    bins = int(np.ceil((df_plot['SaleDate_decyear'].max() - df_plot['SaleDate_decyear'].min())/(1.0/52.0)))
+    bins = int(np.ceil((df_plot['SaleDate_decyear'].max() - df_plot['SaleDate_decyear'].min())*52))
     plt.hist(
         [list(itemized_counts[key].elements()) for key in itemized_counts.keys()],
         bins=bins, stacked=True, rwidth=1.0, label=keys, color=colors[:2])
@@ -665,7 +691,7 @@ def plot_heuristic(
     #     sorted(itemized_counts_top.items(), key=lambda tup: sum(tup[1].values()), reverse=True))
     # itemized_counts.move_to_end('other')
     # keys = itemized_counts.keys()
-    # bins = int(np.ceil((df_plot['SaleDate_decyear'].max() - df_plot['SaleDate_decyear'].min())/(1.0/52.0)))
+    # bins = int(np.ceil((df_plot['SaleDate_decyear'].max() - df_plot['SaleDate_decyear'].min())*52))
     # colors = sns.light_palette(sns.color_palette()[2], n_colors=len(keys))
     # plt.hist(
     #     [list(itemized_counts[key].elements()) for key in itemized_counts.keys()],
@@ -679,6 +705,7 @@ def plot_heuristic(
     # Plot timeseries histogram of Returned (1) vs SalesDate
     # by BuyerID for BuyerIDs with return rate > buyer_retrate_max (buyer_retrate_max=0.1).
     # buyer_retrate = 'BuyerID_fracReturned1DivReturnedNotNull'
+    # Bins represent weeks.
     df_plot = df.loc[df['Returned']==1, ['SaleDate_decyear', 'BuyerID', buyer_retrate]].copy()
     buyer_retrate_omax = buyer_retrate+'_omax'
     df_plot[buyer_retrate_omax] = df_plot[buyer_retrate] > buyer_retrate_max
@@ -688,7 +715,7 @@ def plot_heuristic(
     itemized_counts = collections.OrderedDict(
         sorted(itemized_counts.items(), key=lambda tup: tup[0], reverse=False))
     keys = itemized_counts.keys()
-    bins = int(np.ceil((df_plot['SaleDate_decyear'].max() - df_plot['SaleDate_decyear'].min())/(1.0/52.0)))
+    bins = int(np.ceil((df_plot['SaleDate_decyear'].max() - df_plot['SaleDate_decyear'].min())*52))
     colors = sns.light_palette(sns.color_palette()[2], n_colors=len(keys))
     plt.hist(
         [list(itemized_counts[key].elements()) for key in itemized_counts.keys()],
@@ -711,8 +738,37 @@ def plot_heuristic(
     df_plot = df[['BuyerID', buyer_retrate]].copy()
     df_plot[buyer_retrate_omax] = df_plot[buyer_retrate] > buyer_retrate_max
     itemized_counts = {
+        is_omax: grp[buyer_retrate].values
+        for (is_omax, grp) in df_plot.groupby(by=buyer_retrate_omax)}
+    itemized_counts = collections.OrderedDict(
+        sorted(itemized_counts.items(), key=lambda tup: tup[0], reverse=False))
+    keys = itemized_counts.keys()
+    bins = 20
+    colors = sns.light_palette(sns.color_palette()[2], n_colors=len(keys))
+    plt.hist(
+        [itemized_counts[key] for key in itemized_counts.keys()],
+        bins=bins, stacked=True, rwidth=1.0, label=keys, color=colors)
+    plt.title('Return rate per transaction\nfrequency distribution')
+    plt.xlabel('Return rate')
+    plt.ylabel('Number of transactions with\nbuyer return rate = X')
+    plt.legend(
+        title='Buyer return\nrate > {retrate:.0%}'.format(retrate=buyer_retrate_max),
+        loc='upper left', bbox_to_anchor=(1.0, 1.0))
+    plt.tight_layout(rect=rect)
+    if path_plot_dir is not None:
+        plt.savefig(
+            os.path.join(path_plot_dir, 'heuristic3_returnrate_freq-dist-transaction_by_returnrate.png'),
+            dpi=300)
+    plt.show()
+
+    # Plot frequency distribution of return rates per BuyerID
+    # Note: Buyers can be counted twice in the histogram if they cross the
+    #   buyer_retrate_max = 0.1 threshold.
+    df_plot = df[['BuyerID', buyer_retrate]].copy()
+    df_plot[buyer_retrate_omax] = df_plot[buyer_retrate] > buyer_retrate_max
+    itemized_counts = {
         is_omax: grp[['BuyerID', buyer_retrate]].groupby(by='BuyerID').mean().values.flatten()
-        for (omax, grp) in df_plot.groupby(by=buyer_retrate_omax)}
+        for (is_omax, grp) in df_plot.groupby(by=buyer_retrate_omax)}
     itemized_counts = collections.OrderedDict(
         sorted(itemized_counts.items(), key=lambda tup: tup[0], reverse=False))
     keys = itemized_counts.keys()
@@ -730,7 +786,7 @@ def plot_heuristic(
     plt.tight_layout(rect=rect)
     if path_plot_dir is not None:
         plt.savefig(
-            os.path.join(path_plot_dir, 'heuristic3_returnrate_freq-dist-buyer_by_returnrate.png'),
+            os.path.join(path_plot_dir, 'heuristic4_returnrate_freq-dist-buyer_by_returnrate.png'),
             dpi=300)
     plt.show()
     return None
