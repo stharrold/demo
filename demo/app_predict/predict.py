@@ -477,7 +477,10 @@ def plot_eda(
         print('Feature: {col}'.format(col=col))
         print('Timestamp:', time.strftime(r'%Y-%m-%dT%H:%M:%S%Z', time.gmtime()))
         # Plot frequency distributions by transaction.
-        df_plot = df[['BuyerID', col, buyer_retrate]].copy()
+        if col != buyer_retrate:
+            df_plot = df[['BuyerID', col, buyer_retrate]].copy()
+        else:
+            df_plot = df[['BuyerID', buyer_retrate]].copy()
         buyer_retrate_omax = buyer_retrate+'_omax'
         df_plot[buyer_retrate_omax] = df_plot[buyer_retrate] > buyer_retrate_max
         itemized_counts = {
