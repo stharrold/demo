@@ -31,9 +31,28 @@ import sklearn.tree as sklearn_tree
 
 
 __all__ = [
+    'Container',
     'plot_feature_importances',
     'plot_actual_vs_predicted',
+    'plot_stacked_timeseries_histogram',
+    'rolling_window',
     'search_models']
+
+
+class Container:
+    r"""Empty class to contain dynamically allocated attributes.
+    Use to minimize namespace clutter from variable names.
+    Use for heirarchical data storage like a `dict`.
+    
+    Example:
+        ```
+        data = Container()
+        data.features = features
+        data.target = target
+        ```
+
+    """
+    pass
 
 
 def plot_feature_importances(model, train_features):
@@ -118,6 +137,116 @@ def plot_actual_vs_predicted(y_true, y_pred, return_ax=False):
         plt.show()
         return_obj = None
     return return_obj
+
+
+def plot_stacked_timeseries_histogram(
+    total_counts, itemized_counts=None, ax=None):
+    r"""Create a time series histogram with stacked counts labeled by category.
+    Convenience function for methods from
+    `astroML.density_estimation.bayesian_blocks`.
+    
+    Args:
+        total_counts (collections.Counter): Total counts by time.
+            Example: total_counts.items() = [(1, 5), (2, 4), ...]
+                where day 1 had 5 total counts, day 2 had 4 total counts...
+        itemized_counts (optional, dict): `dict` of `collections.Counter`.
+            If `None` (default), histogram is not stacked.
+            Keys: `hashable` label for each type of event. To preserve
+                key order, use `collections.OrderedDict`.
+            Values: `collections.Counter` counts by time.
+            Example: itemized_counts = dict(a=counter_a, b=counter_b)
+                where counter_a.items() = [(1, 1), (2, 1), ...]
+                and   counter_b.items() = [(1, 4), (2, 3), ...]
+            Required: The `total_counts` must equal the sum of all
+                `itemized_counts`
+        ax (optional, matplotlib.Axes): Axes instance on which to add the plot.
+            If `None` (default), an axes instance is created.
+    
+    Returns:
+        ax (matplotlib.axes): Axes instance for the plot.
+
+    Raises:
+        AssertionError:
+            If `total_counts` does not equal the sum of all `itemized_counts`.
+
+    See Also:
+        astroML.density_estimation.bayesian_blocks
+
+    Notes:
+        * This simple implementation assumes that the times are not regularly
+            spaced and that the data are counts of events.
+        * Example call with ax=`None`:
+            ax = plot_stacked_timeseries_histogram(
+                total_counts=total_counts,
+                itemized_counts=itemized_counts,
+                ax=None)
+            ax.legend(loc='upper left')
+            plt.show(ax)
+        * Example call with ax defined:
+            fig = plt.figure()
+            ax = fig.add_subplot(111)
+            ax = plot_stacked_timeseries_histogram(
+                total_counts=total_counts,
+                itemized_counts=itemized_counts,
+                ax=ax)
+            ax.legend(loc='upper left')
+            plt.show(ax)
+
+    """
+    # Check input.
+    if itemized_counts is not None:
+        summed_itemized_counts = collections.Counter()
+        for key in itemized_counts.keys():
+            summed_itemized_counts.update(itemized_counts[key])
+        if not total_counts == summed_itemized_counts:
+            raise AssertionError(
+               "`total_counts` must equal the sum of all `itemized_counts`.")
+    # Calculate histogram bins.
+    (times, counts) = zip(*total_counts.items())
+    bin_edges = astroML_dens.bayesian_blocks(
+        t=times, x=counts, fitness='events')
+    # Create plot.
+    if ax is None:
+        fig = plt.figure()
+        ax = fig.add_subplot(111)
+    if itemized_counts is None:
+        ax.hist(list(total_counts.elements()),
+                bins=bin_edges, stacked=False, rwidth=1.0, label=None,
+                color=sns.color_palette()[0])
+    else:
+        keys = itemized_counts.keys()
+        ax.hist([list(itemized_counts[key].elements()) for key in keys],
+                bins=bin_edges, stacked=True, rwidth=1.0, label=keys,
+                color=sns.husl_palette(n_colors=len(keys)))
+    return ax
+
+
+def rolling_window(
+    arr, window):
+    r"""Efficient rolling window for statistics. From [1]_.
+
+    Args:
+        arr (numpy.ndarray) 
+        window (int): Number of elements in window.
+
+    Returns:
+    arr_windowed (numpy.ndarray): `arr` where each element has been replaced
+        by a `numpy.ndarray` of length `window`, centered on the element.
+        Edge elements are dropped.
+
+    Notes:
+        * Example for 1D arrays: `numpy.std(rolling_window(arr1d, window), 1)`
+        * Example for 2D arrays: `numpy.std(rolling_window(arr2d, window), -1)`
+        * For additional examples, see [1]_, [2]_.
+
+    References:
+        .. [1] http://www.rigtorp.se/2011/01/01/rolling-statistics-numpy.html
+        .. [2] http://stackoverflow.com/questions/6811183/
+               rolling-window-for-1d-arrays-in-numpy
+    """
+    shape = arr.shape[:-1] + (arr.shape[-1] - window + 1, window)
+    strides = arr.strides + (arr.strides[-1],)
+    return np.lib.stride_tricks.as_strided(arr, shape=shape, strides=strides)
 
 
 def search_models(
@@ -231,115 +360,4 @@ def search_models(
         if show_svg:
             display(SVG(filename=path_dot+'.svg'))
     return None
-
-
-def plot_stacked_timeseries_histogram(
-    total_counts, itemized_counts=None, ax=None):
-    r"""Create a time series histogram with stacked counts labeled by category.
-    Convenience function for methods from
-    `astroML.density_estimation.bayesian_blocks`.
-    
-    Args:
-        total_counts (collections.Counter): Total counts by time.
-            Example: total_counts.items() = [(1, 5), (2, 4), ...]
-                where day 1 had 5 total counts, day 2 had 4 total counts...
-        itemized_counts (optional, dict): `dict` of `collections.Counter`.
-            If `None` (default), histogram is not stacked.
-            Keys: `hashable` label for each type of event. To preserve
-                key order, use `collections.OrderedDict`.
-            Values: `collections.Counter` counts by time.
-            Example: itemized_counts = dict(a=counter_a, b=counter_b)
-                where counter_a.items() = [(1, 1), (2, 1), ...]
-                and   counter_b.items() = [(1, 4), (2, 3), ...]
-            Required: The `total_counts` must equal the sum of all
-                `itemized_counts`
-        ax (optional, matplotlib.Axes): Axes instance on which to add the plot.
-            If `None` (default), an axes instance is created.
-    
-    Returns:
-        ax (matplotlib.axes): Axes instance for the plot.
-
-    Raises:
-        AssertionError:
-            If `total_counts` does not equal the sum of all `itemized_counts`.
-
-    See Also:
-        astroML.density_estimation.bayesian_blocks
-
-    Notes:
-        * This simple implementation assumes that the times are not regularly
-            spaced and that the data are counts of events.
-        * Example call with ax=`None`:
-            ax = plot_stacked_timeseries_histogram(
-                total_counts=total_counts,
-                itemized_counts=itemized_counts,
-                ax=None)
-            ax.legend(loc='upper left')
-            plt.show(ax)
-        * Example call with ax defined:
-            fig = plt.figure()
-            ax = fig.add_subplot(111)
-            ax = plot_stacked_timeseries_histogram(
-                total_counts=total_counts,
-                itemized_counts=itemized_counts,
-                ax=ax)
-            ax.legend(loc='upper left')
-            plt.show(ax)
-
-    """
-    # Check input.
-    if itemized_counts is not None:
-        summed_itemized_counts = collections.Counter()
-        for key in itemized_counts.keys():
-            summed_itemized_counts.update(itemized_counts[key])
-        if not total_counts == summed_itemized_counts:
-            raise AssertionError(
-               "`total_counts` must equal the sum of all `itemized_counts`.")
-    # Calculate histogram bins.
-    (times, counts) = zip(*total_counts.items())
-    bin_edges = astroML_dens.bayesian_blocks(
-        t=times, x=counts, fitness='events')
-    # Create plot.
-    if ax is None:
-        fig = plt.figure()
-        ax = fig.add_subplot(111)
-    if itemized_counts is None:
-        ax.hist(list(total_counts.elements()),
-                bins=bin_edges, stacked=False, rwidth=1.0, label=None,
-                color=sns.color_palette()[0])
-    else:
-        keys = itemized_counts.keys()
-        ax.hist([list(itemized_counts[key].elements()) for key in keys],
-                bins=bin_edges, stacked=True, rwidth=1.0, label=keys,
-                color=sns.husl_palette(n_colors=len(keys)))
-    return ax
-
-
-def rolling_window(
-    arr, window):
-    r"""Efficient rolling window for statistics. From [1]_.
-
-    Args:
-        arr (numpy.ndarray) 
-        window (int): Number of elements in window.
-
-    Returns:
-    arr_windowed (numpy.ndarray): `arr` where each element has been replaced
-        by a `numpy.ndarray` of length `window`, centered on the element.
-        Edge elements are dropped.
-
-    Notes:
-        * Example for 1D arrays: `numpy.std(rolling_window(arr1d, window), 1)`
-        * Example for 2D arrays: `numpy.std(rolling_window(arr2d, window), -1)`
-        * For additional examples, see [1]_, [2]_.
-
-    References:
-        .. [1] http://www.rigtorp.se/2011/01/01/rolling-statistics-numpy.html
-        .. [2] http://stackoverflow.com/questions/6811183/
-               rolling-window-for-1d-arrays-in-numpy
-    """
-    shape = arr.shape[:-1] + (arr.shape[-1] - window + 1, window)
-    strides = arr.strides + (arr.strides[-1],)
-    return np.lib.stride_tricks.as_strided(arr, shape=shape, strides=strides)
-
 
