@@ -16,6 +16,7 @@ import demo
 
 def test__all__(
     ref_all=[
+        'app_predict',
         'app_template',
         'utils']
     ) -> None:

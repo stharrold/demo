@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-r"""Top-level script for app_template.
+r"""Top-level script for app_predict.
 
 """
 
@@ -44,6 +44,9 @@ def main(
     Returns:
         None
 
+    TODO:
+        * Redo for app_predict.
+
     """
     # Define log with metadata.
     timestamp = time.strftime(r'%Y%m%dT%H%M%SZ', time.gmtime())
@@ -74,6 +77,7 @@ def main(
     (args, *_, values) = inspect.getargvalues(frame)
     logger.info(here+": Argument values: {args_values}".format(
         args_values=[(arg, values[arg]) for arg in sorted(args)]))
+    logger.info(here+": Version = {version}".format(version=demo.__version__))
     # Execute application.
     logger.info(here+": Executing application.")
     try:

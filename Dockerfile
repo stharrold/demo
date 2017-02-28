@@ -26,10 +26,10 @@ RUN apt-get update -y && \
 #   http://stackoverflow.com/questions/38447738/beautifulsoup-html5lib-module-object-has-no-attribute-base
 RUN conda install -y jupyter && \
     conda install -y -c r \
-        r-essentials
-        r-e1071
-        r-rocr && \
-    pip install --upgrade pip && \
+        r-essentials \
+        r-e1071 \
+        r-rocr
+RUN pip install --upgrade pip && \
     pip install \
         astroML \
         astroML_addons \
