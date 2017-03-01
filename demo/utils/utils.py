@@ -48,7 +48,7 @@ def calc_feature_importances(
     estimator,
     df_features:pd.DataFrame, ds_target:pd.Series, ds_weight:pd.Series=None, 
     size_sub:int=None, replace:bool=True, dists:list=None, 
-    show_progress:bool=False, show_plot:bool=False) -> pd.DataFrame:
+    show_progress:bool=False, show_plot:bool=False, path:str=None) -> pd.DataFrame:
     r"""Calculate feature importances and compare to random added features
     for weighted data sets.
     
@@ -80,6 +80,7 @@ def calc_feature_importances(
         show_progress (bool, optional, False): Print status.
         show_plot (bool, optional, False): Show summary plot of max top 20 
             significant feature importances and the random importance.
+        path (str, optional, None): Path to save plot.
         
     Returns:
         df_importances (pandas.DataFrame): Data frame of feature importances.
@@ -166,6 +167,9 @@ def calc_feature_importances(
             ("Importance score\n" +
              "(normalized reduction of loss function)"))
         plt.ylabel("Feature column name")
+        plt.tight_layout()
+        if path is not None:
+            plt.savefig(path, dpi=300)
         plt.show()
     return df_importances
 
@@ -557,7 +561,7 @@ def plot_actual_vs_predicted(
     return None
 
 
-def plot_feature_importances(model, train_features):
+def plot_feature_importances(model, train_features, path:str=None):
     r"""Plot feature importances.
     
     Args:
@@ -565,6 +569,7 @@ def plot_feature_importances(model, train_features):
             Model must have already been fit.
         train_features (pandas.DataFrame): The data that was used to train
             the model.
+        path (str, optional, None): Path to save plot.
     
     Returns:
         None
@@ -591,6 +596,8 @@ def plot_feature_importances(model, train_features):
     sns.barplot(
         x='importance', y='feature', data=df_importances,
         color=sns.color_palette()[0], ax=ax)
+    if path is not None:
+        plt.savefig(path, dpi=300)
     plt.show()
     return None
 
