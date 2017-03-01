@@ -1396,3 +1396,12 @@ def create_features_new_data(
         #     (numReturned1)
     return df_next
 
+
+def create_pipeline_model(
+    df:pandas.DataFrame,
+    path_data_dir:str):
+    r"""Create pipeline model.
+
+    """
+    
+    return None
