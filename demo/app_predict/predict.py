@@ -11,17 +11,26 @@ import collections
 import inspect
 import logging
 import os
+import pickle
 import requests
 import shelve
 import sys
 import textwrap
 import time
+import warnings
 # Import installed packages.
 import geopy
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import scipy
 import seaborn as sns
+import sklearn.cross_validation as sk_cv
+import sklearn.cluster as sk_cl
+import sklearn.decomposition as sk_dc
+import sklearn.ensemble as sk_ens
+import sklearn.metrics as sk_met
+import sklearn.preprocessing as sk_pre
 # Import local packages.
 from .. import utils
 
@@ -1403,5 +1412,543 @@ def create_pipeline_model(
     r"""Create pipeline model.
 
     """
+    ########################################
+    # Define target and features
+    target = 'Returned'
+    features = set(df.columns[np.logical_or(df.dtypes=='int64', df.dtypes=='float64')])
+    features.difference_update([target])
+    features = sorted(features)
+    print('Features:')
+    print(features)
+    ########################################
+    print(textwrap.dedent("""\
+        `Container`: Create an empty container class and
+        dynamically allocate attributes to hold variables for specific steps
+        of the pipeline. """))
+    Container = demo.utils.utils.Container
+    step = Container()
+
+    print(textwrap.dedent("""\
+        `step.s0.[df,ds]_[features,target]`: Save initial state of features, target."""))
+    step.s0 = Container()
+    step.s0.dfs = Container()
+    step.s0.dfs.df_features = df[features].copy()
+    step.s0.dfs.ds_target = df[target].copy()
+
+    # TODO: REDO after this point with step.sN.dfs.[df_features,ds_target]
+    # rather than redefining [df_features,ds_target]
+    df_features = step.s0.dfs.df_features
+    ds_target = step.s0.dfs.ds_target
+    ########################################
+    print(textwrap.dedent("""\
+        `transformer_scaler`, `transformer_pca`: Scale data
+        then make groups of similar records with k-means clustering,
+        both with and without PCA. Use the silhouette score to determine
+        the number of clusters.
+        """))
+    time_start = time.perf_counter()
+
+    # Scale data prior to comparing clusters with/without PCA. 
+    # Note: Using sklearn.preprocessing.RobustScaler with
+    #     sklearn.decomposition.IncrementalPCA(whiten=False)
+    #     is often the most stable (slowly varying scores)
+    #     with highest scores. Centroid agreement can still be
+    #     off due to outliers.
+    transformer_scaler = sk_pre.RobustScaler()
+    features_scaled = transformer_scaler.fit_transform(X=df_features)
+    transformer_pca = sk_dc.IncrementalPCA(whiten=False)
+    features_scaled_pca = transformer_pca.fit_transform(X=features_scaled)
+
+    print("`columns.pkl`, `transformer_scaler.pkl`, `transformer_pca.pkl`: Save column order and transformers.")
+    path_data = path_data_dir
+    path_cols = os.path.join(path_data, 'columns.pkl')
+    with open(path_cols, mode='wb') as fobj:
+        pickle.dump(obj=df_features.columns, file=fobj)
+    path_tform_scl = os.path.join(path_data, 'transformer_scaler.pkl')
+    with open(path_tform_scl, mode='wb') as fobj:
+        pickle.dump(obj=transformer_scaler, file=fobj)
+    path_tform_pca = os.path.join(path_data, 'transformer_pca.pkl')
+    with open(path_tform_pca, mode='wb') as fobj:
+        pickle.dump(obj=transformer_pca, file=fobj)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        
+        print("Plot scores for scaled features:")
+        demo.utils.utils.calc_silhouette_scores(
+            df_features=features_scaled, n_clusters_min=2, n_clusters_max=10,
+            size_sub=None, n_scores=10, show_progress=True, show_plot=True)
+
+        print("Plot scores for scaled PCA features:")
+        demo.utils.utils.calc_silhouette_scores(
+            df_features=features_scaled_pca, n_clusters_min=2, n_clusters_max=10,
+            size_sub=None, n_scores=10, show_progress=True, show_plot=True)
+
+    time_stop = time.perf_counter()
+    print("Time elapsed (sec) = {diff:.1f}".format(diff=time_stop-time_start))
+    ########################################
+    print(textwrap.dedent("""\
+        `transformer_kmeans`, `transformer_kmeans_pca`:
+        Fit k-means to the data with/without PCA and
+        compare the centroids for the clusters."""))
+
+    # TODO: Fix plot. Assign clusters IDs in a deterministic way so that
+    #   cluster 0 raw matches cluster 0 transformed.
+    time_start = time.perf_counter()
+
+    n_clusters = 2 # from silhouette scores
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        # Cluster scaled features with/without PCA using minibatch k-means
+        transformer_kmeans = sk_cl.MiniBatchKMeans(n_clusters=n_clusters)
+        transformer_kmeans.fit(X=features_scaled)
+        transformer_kmeans_pca = sk_cl.MiniBatchKMeans(n_clusters=n_clusters)
+        transformer_kmeans_pca.fit(X=features_scaled_pca)
+
+    print("`transformer_kmeans.pkl`, `transformer_kmeans_pca.pkl`: Save transformers.")
+    path_tform_km = os.path.join(path_data, 'transformer_kmeans.pkl')
+    with open(path_tform_km, mode='wb') as fobj:
+        pickle.dump(obj=transformer_kmeans, file=fobj)
+    path_tform_km_pca = os.path.join(path_data, 'transformer_kmeans_pca.pkl')
+    with open(path_tform_km_pca, mode='wb') as fobj:
+        pickle.dump(obj=transformer_kmeans_pca, file=fobj)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+
+        # Plot clusters in scaled feature space.
+        centroids = transformer_kmeans.cluster_centers_
+        transformed_centroids = transformer_pca.inverse_transform(transformer_kmeans_pca.cluster_centers_)
+        (col_1, col_0) = np.argsort(np.var(features_scaled, axis=0))[-2:]
+        (name_1, name_0) = (df_features.columns.values[col_1], df_features.columns.values[col_0])
+        plt.title("Data and centroids within scaled feature space")
+        tfmask_gt01 = df_features[buyer_retrate] > buyer_retrate_max
+        plt.plot(features_scaled[tfmask_gt01, col_0], features_scaled[tfmask_gt01, col_1],
+                 marker='o', linestyle='', color=sns.color_palette()[2], alpha=0.5,
+                 label='data, buyer_retrate_gt01')
+        tfmask_lt01 = np.logical_not(tfmask_gt01)
+        plt.plot(features_scaled[tfmask_lt01, col_0], features_scaled[tfmask_lt01, col_1],
+                 marker='.', linestyle='', color=sns.color_palette()[1], alpha=0.5,
+                 label='data, buyer_retrate_lt01')
+        plt.plot(centroids[:, col_0], centroids[:, col_1],
+                 marker='+', linestyle='', markeredgewidth=2, markersize=12,
+                 color=sns.color_palette()[0], label='centroids')
+        for (idx, centroid) in enumerate(centroids):
+            plt.annotate(
+                str(idx), xy=(centroid[col_0], centroid[col_1]),
+                xycoords='data', xytext=(0, 0), textcoords='offset points', color='black',
+                fontsize=18, rotation=0)
+        plt.plot(transformed_centroids[:, col_0], transformed_centroids[:, col_1],
+                 marker='x', linestyle='', markeredgewidth=2, markersize=10,
+                 color=sns.color_palette()[1], label='transformed centroids')
+        for (idx, transformed_centroid) in enumerate(transformed_centroids):
+            plt.annotate(
+                str(idx), xy=(transformed_centroid[col_0], transformed_centroid[col_1]),
+                xycoords='data', xytext=(0, 0), textcoords='offset points', color='black',
+                fontsize=18, rotation=0)
+        plt.xlabel("Scaled '{name}', highest variance".format(name=name_0))
+        plt.ylabel("Scaled '{name}', next highest variance".format(name=name_1))
+        plt.legend(loc='upper left')
+        plt.show()
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+
+        # Plot clusters in scaled feature PCA space.
+        transformed_centroids = transformer_pca.transform(transformer_kmeans.cluster_centers_)
+        centroids = transformer_kmeans_pca.cluster_centers_
+        plt.title("Data and centroids within scaled feature PCA space")
+        plt.plot(features_scaled_pca[tfmask_gt01, 0], features_scaled_pca[tfmask_gt01, 1],
+                 marker='o', linestyle='', color=sns.color_palette()[2], alpha=0.5,
+                 label='transformed data, buyer_retrate_gt01')
+        plt.plot(features_scaled_pca[tfmask_lt01, 0], features_scaled_pca[tfmask_lt01, 1],
+                 marker='.', linestyle='', color=sns.color_palette()[1], alpha=0.5,
+                 label='transformed data, buyer_retrate_lt01')
+        plt.plot(transformed_centroids[:, 0], transformed_centroids[:, 1],
+                 marker='+', linestyle='', markeredgewidth=2, markersize=12,
+                 color=sns.color_palette()[0], label='transformed centroids')
+        for (idx, transformed_centroid) in enumerate(transformed_centroids):
+            plt.annotate(
+                str(idx), xy=(transformed_centroid[0], transformed_centroid[1]),
+                xycoords='data', xytext=(0, 0), textcoords='offset points', color='black',
+                fontsize=18, rotation=0)
+        plt.plot(centroids[:, 0], centroids[:, 1],
+                 marker='x', linestyle='', markeredgewidth=2, markersize=10,
+                 color=sns.color_palette()[1], label='centroids')
+        for (idx, centroid) in enumerate(centroids):
+            plt.annotate(
+                str(idx), xy=(centroid[0], centroid[1]),
+                xycoords='data', xytext=(0, 0), textcoords='offset points', color='black',
+                fontsize=18, rotation=0)
+        plt.xlabel('Principal component 0')
+        plt.ylabel('Principal component 1')
+        plt.legend(loc='upper left')
+        plt.show()
+
+    time_stop = time.perf_counter()
+    print("Time elapsed (sec) = {diff:.1f}".format(diff=time_stop-time_start))
+    ########################################
+    print(textwrap.dedent("""\
+        `df_features2`: Combine `df_features` with
+        cluster labels, cluster distances, PCA components, PCA cluster labels,
+        and PCA cluster distances into `df_features`."""))
+    time_start = time.perf_counter()
+
+    # Cluster labels and distances in feature space.
+    ds_clusters = pd.Series(
+        transformer_kmeans.predict(X=features_scaled),
+        index=df_features.index, name='cluster')
+    n_digits = len(str(len(transformer_kmeans.cluster_centers_)))
+    columns = [
+        'cluster_{num}_dist'.format(num=str(num).rjust(n_digits, '0'))
+        for num in range(len(transformer_kmeans.cluster_centers_))]
+    df_cluster_dists = pd.DataFrame(
+        transformer_kmeans.transform(X=features_scaled),
+        index=df_features.index, columns=columns)
+    if not np.all(ds_clusters.values == np.argmin(df_cluster_dists.values, axis=1)):
+        raise AssertionError(
+            ("Program error. Not all cluster labels match cluster label\n" +
+             "with minimum distance to record.\n" +
+             "Required: np.all(ds_clusters.values == np.argmin(df_cluster_dists.values, axis=1))"))
+
+    # PCA features.
+    n_digits = len(str(transformer_pca.n_components_))
+    columns = [
+        'pca_comp_{num}'.format(num=str(num).rjust(n_digits, '0'))
+        for num in range(transformer_pca.n_components_)]
+    df_features_pca = pd.DataFrame(
+        features_scaled_pca, index=df_features.index, columns=columns)
+
+    # Cluster labels and distances in PCA feature space.
+    ds_clusters_pca = pd.Series(
+        transformer_kmeans_pca.predict(X=features_scaled_pca),
+        index=df_features.index, name='pca_cluster')
+    n_digits = len(str(len(transformer_kmeans_pca.cluster_centers_)))
+    columns = [
+        'pca_cluster_{num}_dist'.format(num=str(num).rjust(n_digits, '0'))
+        for num in range(len(transformer_kmeans_pca.cluster_centers_))]
+    df_cluster_dists_pca = pd.DataFrame(
+        transformer_kmeans_pca.transform(X=features_scaled_pca),
+        index=df_features.index, columns=columns)
+    if not np.all(ds_clusters_pca.values == np.argmin(df_cluster_dists_pca.values, axis=1)):
+        raise AssertionError(
+            ("Program error. Not all PCA cluster labels match PCA cluster label\n" +
+             "with minimum distance to record.\n" +
+             "Required: np.all(ds_clusters_pca.values == np.argmin(df_cluster_dists_pca.values, axis=1))"))
+
+    # Combine with original `df_features` into new `df_features2`.
+    df_features2 = pd.concat(
+        [df_features, ds_clusters, df_cluster_dists,
+         df_features_pca, ds_clusters_pca, df_cluster_dists_pca],
+        axis=1, copy=True)
+
+    time_stop = time.perf_counter()
+    print("Time elapsed (sec) = {diff:.1f}".format(diff=time_stop-time_start))
+    ########################################
+    print(textwrap.dedent("""\
+        `df_importances` , `important_features`, `df_features3`:
+        `df_features3` is a view into (not a copy) of `df_features2` with only
+        `important_features`. Feature importance is the normalized reduction
+        in the loss score. A feature is selected as 'important' if its average
+        importance is greater than the average importance of the random feature."""))
+    time_start = time.perf_counter()
+
+    # Calculate feature importances.
+    # Note:
+    # * `n_estimators` impact the feature importances but only have a small
+    #     effect on the relative importances.
+    # * `n_estimators` impact the scores but only have a small effect on the relative scores.
+    # * Use replace=False for maximum data variety.
+    # TODO: Use a significance test for feature importance.
+    estimator = sk_ens.ExtraTreesRegressor(n_estimators=10, n_jobs=-1)
+    df_importances = demo.utils.utils.calc_feature_importances(
+        estimator=estimator, df_features=df_features2, ds_target=ds_target,
+        replace=False, show_progress=True, show_plot=True)
+    important_features = df_importances.columns[
+        df_importances.mean() > df_importances['random'].mean()]
+    important_features = list(
+        df_importances[important_features].mean().sort_values(ascending=False).index)
+    df_features3 = df_features2[important_features]
+    print("`important_features` =")
+    print(important_features)
+    print()
+
+    time_stop = time.perf_counter()
+    print("Time elapsed (sec) = {diff:.1f}".format(diff=time_stop-time_start))
     
+    print("`df_features`: Most significant projections of PCA component 78:")
+    print(sorted(list(zip(df_features, transformer_pca.components_[78])), key=lambda tup: tup[1])[:3])
+    print('...')
+    print(sorted(list(zip(df_features, transformer_pca.components_[78])), key=lambda tup: tup[1])[-3:])
+    ########################################
+    print(textwrap.dedent("""\
+        Tune feature space by optimizing the model score
+        with cross validation. Model scores are R^2,
+        the coefficient of determination."""))
+    time_start = time.perf_counter()
+
+    print("Progress:", end=' ')
+    size_data = len(df_features3)
+    size_sub = 1000
+    frac_test = 0.2
+    replace = False
+    n_scores = 10
+    estimator = sk_ens.ExtraTreesRegressor(n_estimators=10, n_jobs=-1)
+    nftrs_scores = list()
+    idxs = itertools.chain(range(0, 20), range(20, 50, 2), range(50, len(important_features), 5))
+    for idx in idxs:
+        n_ftrs = idx+1
+        ftrs = important_features[:n_ftrs]
+        scores = list()
+        for _ in range(0, n_scores):
+            idxs_sub = np.random.choice(a=size_data, size=size_sub, replace=replace)
+            (ftrs_train, ftrs_test,
+             trg_train, trg_test) = sk_cv.train_test_split(
+                df_features3[ftrs].values[idxs_sub], ds_target.values[idxs_sub],
+                test_size=frac_test)
+            estimator.fit(X=ftrs_train, y=trg_train)
+            scores.append(estimator.score(X=ftrs_test, y=trg_test))
+        nftrs_scores.append([n_ftrs, scores])
+        if idx % 10 == 0:
+            print("{frac:.0%}".format(frac=(idx+1)/len(important_features)), end=' ')
+    print('\n')
+
+    nftrs_pctls = np.asarray(
+        [np.append(tup[0], np.percentile(tup[1], q=[5,50,95]))
+         for tup in nftrs_scores])
+    plt.plot(
+        nftrs_pctls[:, 0], nftrs_pctls[:, 2],
+        marker='.', color=sns.color_palette()[0],
+        label='50th pctl score')
+    plt.fill_between(
+        nftrs_pctls[:, 0],
+        y1=nftrs_pctls[:, 1],
+        y2=nftrs_pctls[:, 3],
+        alpha=0.5, color=sns.color_palette()[0],
+        label='5-95th pctls of scores')
+    plt.title("Model score vs number of features")
+    plt.xlabel("Number of features")
+    plt.ylabel("Model score")
+    plt.legend(loc='upper left')
+    plt.show()
+
+    time_stop = time.perf_counter()
+    print("Time elapsed (sec) = {diff:.1f}".format(diff=time_stop-time_start))
+    ########################################
+    print("""`important_features2`, `df_features4`:
+    `df_features4` is a view into (not a copy) of `df_features3` with only
+    `important_features2`. Feature importance is the normalized reduction
+    in the loss score. A feature is selected as 'important' from the
+    model score vs features plot.
+    """)
+    time_start = time.perf_counter()
+
+    # Keep top 10 features from score vs features plot.
+    important_features2 = important_features[:10]
+
+    df_features4 = df_features3[important_features2]
+    print("`important_features2` =")
+    print(important_features2)
+    print()
+
+    print("""Cluster map of important feature correlations with heirarchical relationships.
+    The deeper of the dendrogram node, the higher (anti)correlated the features are.
+    The Spearman rank correlation accommodates non-linear features.
+    The pair plot is a scatter matrix plot of columns vs each other.
+    """)
+    path_plot_dir = os.path.join(path_data_dir, 'plot_model')
+
+    # Notes:
+    # * `size_sub` for computing correlations should be <= 1e3 else runtime is long.
+    # * Use replace=False to show most data variety.
+    # * For pairplot, only plot the target variable with the top 5 important
+    #     features for legibility.
+    # * For clustermap, `nlabels` shows every `nlabels`th label, so 20 labels total.
+    size_sub = min(int(1e3), len(df_features4.index))
+    idxs_sub = np.random.choice(a=df_features4.index, size=size_sub, replace=False)
+    df_plot_sub = df_features4.loc[idxs_sub].copy()
+    df_plot_sub[target] = ds_target.loc[idxs_sub].copy()
+    df_plot_sub['buyer_retrate_gt01'] = df_features3.loc[idxs_sub, buyer_retrate] > buyer_retrate_max
+
+    print(("Clustermap of target, '{target}', top 10 important features, buyer_retrate_gt01:").format(
+            target=target))
+    sns.clustermap(df_plot_sub[[target]+important_features2[:10]+['buyer_retrate_gt01']].corr(method='spearman'))
+    plt.savefig(
+        os.path.join(path_plot_dir, 'model_clustermap.png'),
+        bbox_inches='tight', dpi=300)
+    plt.show()
+
+    print(("Pairplot of target, '{target}', top 5 important features, buyer_retrate_gt01:").format(
+            target=target))
+    df_pairplot = df_plot_sub[[target]+important_features2[:5]+['buyer_retrate_gt01']]
+    print(df_pairplot.columns)
+    ds_columns = pd.Series(df_pairplot.columns, name='column')
+    ds_columns.to_csv(
+        os.path.join(path_plot_dir, 'model_pairplot_index_column_map.csv'),
+        header=True, index_label='index')
+    df_pairplot.columns = ds_columns.index
+    df_pairplot.loc[:, target] = df_pairplot[np.where(ds_columns.values == target)[0][0]]
+    df_pairplot.loc[:, 'buyer_retrate_gt01'] = df_pairplot[np.where(ds_columns.values == 'buyer_retrate_gt01')[0][0]]
+    df_pairplot.drop([np.where(ds_columns.values == target)[0][0]], axis=1, inplace=True)
+    df_pairplot.drop([np.where(ds_columns.values == 'buyer_retrate_gt01')[0][0]], axis=1, inplace=True)
+    sns.pairplot(
+        df_pairplot,
+        hue='buyer_retrate_gt01', diag_kind='hist', markers=['.', 'o'],
+        palette=[sns.color_palette()[1], sns.color_palette()[2]],
+        plot_kws={'alpha':1.0})
+    plt.savefig(
+        os.path.join(path_plot_dir, 'model_pairplot.png'),
+        bbox_inches='tight', dpi=300)
+    plt.show()
+
+    print("Summarize top 5 important features:")
+    print(df_features4[important_features2[:5]].describe(percentiles=percentiles, include='all'))
+    print()
+    print("First 5 records for top 5 important features:")
+    print(df_features4[important_features2[:5]].head())
+    print()
+    print("""Describe top 5 important features. Format:
+    Feature: importance score.
+    Histogram of feature values.""")
+    cols_scores = df_importances[important_features2[:5]].mean().items()
+    for (col, score) in cols_scores:
+        # Describe feature variables.
+        print(
+            ("{col}:\n" +
+             "    importance: {score:.3f}").format(col=col, score=score))
+        # Plot histogram of feature variables.
+        tfmask_gt01 = df_features3[buyer_retrate] > buyer_retrate_max
+        sns.distplot(
+            df_features4.loc[np.logical_not(tfmask_gt01), col], hist=True, kde=False, norm_hist=False,
+            label='buyer_retrate_lt01', color=sns.color_palette()[1])
+        sns.distplot(
+            df_features4.loc[tfmask_gt01, col], hist=True, kde=False, norm_hist=False,
+            label='buyer_retrate_gt01', color=sns.color_palette()[2])
+        plt.title('Feature value histogram')
+        plt.xlabel("Feature value, '{ftr}'".format(ftr=col))
+        plt.ylabel('Number of feature values')
+        plt.legend(loc='upper left')
+        plt.show()
+
+    time_stop = time.perf_counter()
+    print("Time elapsed (sec) = {diff:.1f}".format(diff=time_stop-time_start))
+    ########################################
+    print("""Tune model hyperparameters by optimizing the model score
+    with cross validation. Model scores are R^2,
+    the coefficient of determination.
+    """)
+    time_start = time.perf_counter()
+
+    print("Progress:", end=' ')
+    size_data = len(df_features4)
+    size_sub = min(len(df_features4), int(2e3))
+    frac_test = 0.2
+    replace = False
+    nest_list = [10, 30, 100, 300]
+    n_scores = 10
+    nest_scores = list()
+    for (inum, n_est) in enumerate(nest_list):
+        estimator = sk_ens.ExtraTreesRegressor(n_estimators=n_est, n_jobs=-1)
+        scores = list()
+        for _ in range(0, n_scores):
+            idxs_sub = np.random.choice(a=size_data, size=size_sub, replace=replace)
+            (ftrs_train, ftrs_test,
+             trg_train, trg_test) = sk_cv.train_test_split(
+                df_features4.values[idxs_sub], ds_target.values[idxs_sub],
+                test_size=frac_test)
+            estimator.fit(X=ftrs_train, y=trg_train)
+            scores.append(estimator.score(
+                    X=ftrs_test, y=trg_test))
+        nest_scores.append([n_est, scores])
+        print("{frac:.0%}".format(frac=(inum+1)/len(nest_list)), end=' ')
+    print('\n')
+
+    nest_pctls = np.asarray(
+        [np.append(tup[0], np.percentile(tup[1], q=[5,50,95]))
+         for tup in nest_scores])
+    plt.plot(
+        nest_pctls[:, 0], nest_pctls[:, 2],
+        marker='.', color=sns.color_palette()[0],
+        label='50th pctl score')
+    plt.fill_between(
+        nest_pctls[:, 0],
+        y1=nest_pctls[:, 1],
+        y2=nest_pctls[:, 3],
+        alpha=0.5, color=sns.color_palette()[0],
+        label='5-95th pctls of scores')
+    plt.title("Model score vs number of estimators")
+    plt.xlabel("Number of estimators")
+    plt.ylabel("Model score")
+    plt.legend(loc='lower left')
+    plt.show()
+
+    time_stop = time.perf_counter()
+    print("Time elapsed (sec) = {diff:.1f}".format(diff=time_stop-time_start))
+    ########################################
+    print("""Test significance of predictions by shuffling the target values.
+    Model scores are r^2, the coefficient of determination.
+    """)
+    n_estimators = 50 # from tuning curve
+    time_start = time.perf_counter()
+
+    # Calculate significance of score.
+    estimator = sk_ens.ExtraTreesRegressor(n_estimators=n_estimators, n_jobs=-1)
+    demo.utils.utils.calc_score_pvalue(
+        estimator=estimator, df_features=df_features4, ds_target=ds_target,
+        n_iter=20, size_sub=None, frac_test=0.2,
+        replace=False, show_progress=True, show_plot=True)
+    print()
+
+    time_stop = time.perf_counter()
+    print("Time elapsed (sec) = {diff:.1f}".format(diff=time_stop-time_start))
+    ########################################
+    print("""Predict target values with cross-validation,
+    plot actual vs predicted and score.
+    """)
+    n_estimators = 50 # from tuning curve
+    time_start = time.perf_counter()
+
+    print("Progress:", end=' ')
+    n_folds = 5
+    estimator = sk_ens.ExtraTreesRegressor(n_estimators=n_estimators, n_jobs=-1)
+    kfolds = sk_cv.KFold(n=len(df_features4), n_folds=n_folds, shuffle=True)
+    ds_predicted = pd.Series(index=ds_target.index, name=target+'_pred')
+    idxs_pred = set()
+    for (inum, (idxs_train, idxs_test)) in enumerate(kfolds):
+        if not idxs_pred.isdisjoint(idxs_test):
+            raise AssertionError(
+                ("Program error. Each record must be predicted only once.\n" +
+                 "Required: idxs_pred.isdisjoint(idxs_test)"))
+        idxs_pred.update(idxs_test)
+        ftrs_train = df_features4.values[idxs_train]
+        ftrs_test  = df_features4.values[idxs_test]
+        trg_train  = ds_target.values[idxs_train]
+        trg_test   = ds_target.values[idxs_test]
+        estimator.fit(X=ftrs_train, y=trg_train)
+        ds_predicted.iloc[idxs_test] = estimator.predict(X=ftrs_test)
+        print("{frac:.0%}".format(frac=(inum+1)/n_folds), end=' ')
+    print('\n')
+
+    score = sk_met.r2_score(
+        y_true=ds_target, y_pred=ds_predicted)
+    print("Model score = {score:.3f}".format(score=score))
+    path_plot_dir = os.path.join(path_data_dir, 'plot_model')
+    demo.utils.utils.plot_actual_vs_predicted(
+        y_true=ds_target.values, y_pred=ds_predicted.values,
+        loglog=False, xylims=(-1.1, 1.1),
+        path=os.path.join(path_plot_dir, 'model_actual_vs_predicted.jpg'))
+
+    print("""`features.pkl`, `estimator.pkl`: Save features and estimator.
+    """)
+    path_ftr = os.path.join(path_data, 'features.pkl')
+    with open(path_ftr, mode='wb') as fobj:
+        pickle.dump(obj=df_features4.columns, file=fobj)
+    path_est = os.path.join(path_data, 'estimator.pkl')
+    with open(path_est, mode='wb') as fobj:
+        pickle.dump(obj=estimator, file=fobj)
+
+    time_stop = time.perf_counter()
+    print("Time elapsed (sec) = {diff:.1f}".format(diff=time_stop-time_start))
+    ########################################
     return None
