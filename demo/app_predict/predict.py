@@ -9,6 +9,7 @@ r"""Prediction application.
 import bs4
 import collections
 import inspect
+import itertools
 import logging
 import os
 import pickle
@@ -43,7 +44,8 @@ __all__ = [
     'plot_heursitic',
     'update_features',
     'update_features_append',
-    'create_features_new_data']
+    'create_features_new_data',
+    'create_pipeline_model']
 
 
 # Define state settings and globals.
@@ -531,6 +533,7 @@ def plot_eda(
                 os.path.join(path_plot_dir, 'freq-dist-transaction_'+col+'.png'),
                 dpi=300)
         plt.show()
+
         # Plot frequency distributions by buyer.
         itemized_counts = {
             is_omax: grp[['BuyerID', col]].groupby(by='BuyerID').mean().values.flatten()
@@ -1407,12 +1410,16 @@ def create_features_new_data(
 
 
 def create_pipeline_model(
-    df:pandas.DataFrame,
-    path_data_dir:str):
+    df:pd.DataFrame,
+    path_data_dir:str,
+    show_plots:bool=False):
     r"""Create pipeline model.
 
     """
+    # Check arguments.
+    path_plot_dir = os.path.join(path_data_dir, 'plot_model')
     ########################################
+    print('#'*80)
     # Define target and features
     target = 'Returned'
     features = set(df.columns[np.logical_or(df.dtypes=='int64', df.dtypes=='float64')])
@@ -1420,12 +1427,14 @@ def create_pipeline_model(
     features = sorted(features)
     print('Features:')
     print(features)
+    print()
     ########################################
+    print('#'*80)
     print(textwrap.dedent("""\
         `Container`: Create an empty container class and
         dynamically allocate attributes to hold variables for specific steps
         of the pipeline. """))
-    Container = demo.utils.utils.Container
+    Container = utils.utils.Container
     step = Container()
 
     print(textwrap.dedent("""\
@@ -1439,7 +1448,9 @@ def create_pipeline_model(
     # rather than redefining [df_features,ds_target]
     df_features = step.s0.dfs.df_features
     ds_target = step.s0.dfs.ds_target
+    print()
     ########################################
+    print('#'*80)
     print(textwrap.dedent("""\
         `transformer_scaler`, `transformer_pca`: Scale data
         then make groups of similar records with k-means clustering,
@@ -1475,18 +1486,20 @@ def create_pipeline_model(
         warnings.simplefilter("ignore")
         
         print("Plot scores for scaled features:")
-        demo.utils.utils.calc_silhouette_scores(
+        utils.utils.calc_silhouette_scores(
             df_features=features_scaled, n_clusters_min=2, n_clusters_max=10,
             size_sub=None, n_scores=10, show_progress=True, show_plot=True)
 
         print("Plot scores for scaled PCA features:")
-        demo.utils.utils.calc_silhouette_scores(
+        utils.utils.calc_silhouette_scores(
             df_features=features_scaled_pca, n_clusters_min=2, n_clusters_max=10,
             size_sub=None, n_scores=10, show_progress=True, show_plot=True)
 
     time_stop = time.perf_counter()
     print("Time elapsed (sec) = {diff:.1f}".format(diff=time_stop-time_start))
+    print()
     ########################################
+    print('#'*80)
     print(textwrap.dedent("""\
         `transformer_kmeans`, `transformer_kmeans_pca`:
         Fit k-means to the data with/without PCA and
@@ -1550,7 +1563,12 @@ def create_pipeline_model(
         plt.xlabel("Scaled '{name}', highest variance".format(name=name_0))
         plt.ylabel("Scaled '{name}', next highest variance".format(name=name_1))
         plt.legend(loc='upper left')
-        plt.show()
+        if show_plots:
+            plt.show()
+        plt.gcf().clear()
+        plt.clf()
+        plt.cla()
+        plt.close()
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
@@ -1584,11 +1602,18 @@ def create_pipeline_model(
         plt.xlabel('Principal component 0')
         plt.ylabel('Principal component 1')
         plt.legend(loc='upper left')
-        plt.show()
+        if show_plots:
+            plt.show()
+        plt.gcf().clear()
+        plt.clf()
+        plt.cla()
+        plt.close()
 
     time_stop = time.perf_counter()
     print("Time elapsed (sec) = {diff:.1f}".format(diff=time_stop-time_start))
+    print()
     ########################################
+    print('#'*80)
     print(textwrap.dedent("""\
         `df_features2`: Combine `df_features` with
         cluster labels, cluster distances, PCA components, PCA cluster labels,
@@ -1645,7 +1670,9 @@ def create_pipeline_model(
 
     time_stop = time.perf_counter()
     print("Time elapsed (sec) = {diff:.1f}".format(diff=time_stop-time_start))
+    print()
     ########################################
+    print('#'*80)
     print(textwrap.dedent("""\
         `df_importances` , `important_features`, `df_features3`:
         `df_features3` is a view into (not a copy) of `df_features2` with only
@@ -1662,7 +1689,7 @@ def create_pipeline_model(
     # * Use replace=False for maximum data variety.
     # TODO: Use a significance test for feature importance.
     estimator = sk_ens.ExtraTreesRegressor(n_estimators=10, n_jobs=-1)
-    df_importances = demo.utils.utils.calc_feature_importances(
+    df_importances = utils.utils.calc_feature_importances(
         estimator=estimator, df_features=df_features2, ds_target=ds_target,
         replace=False, show_progress=True, show_plot=True)
     important_features = df_importances.columns[
@@ -1681,7 +1708,9 @@ def create_pipeline_model(
     print(sorted(list(zip(df_features, transformer_pca.components_[78])), key=lambda tup: tup[1])[:3])
     print('...')
     print(sorted(list(zip(df_features, transformer_pca.components_[78])), key=lambda tup: tup[1])[-3:])
+    print()
     ########################################
+    print('#'*80)
     print(textwrap.dedent("""\
         Tune feature space by optimizing the model score
         with cross validation. Model scores are R^2,
@@ -1696,7 +1725,7 @@ def create_pipeline_model(
     n_scores = 10
     estimator = sk_ens.ExtraTreesRegressor(n_estimators=10, n_jobs=-1)
     nftrs_scores = list()
-    idxs = itertools.chain(range(0, 20), range(20, 50, 2), range(50, len(important_features), 5))
+    idxs = itertools.chain(range(0, 10), range(10, 30, 3), range(30, len(important_features), 10))
     for idx in idxs:
         n_ftrs = idx+1
         ftrs = important_features[:n_ftrs]
@@ -1731,11 +1760,21 @@ def create_pipeline_model(
     plt.xlabel("Number of features")
     plt.ylabel("Model score")
     plt.legend(loc='upper left')
-    plt.show()
+    plt.savefig(
+        os.path.join(path_plot_dir, 'model_tune_nfeatures.png'),
+        bbox_inches='tight', dpi=300)
+    if show_plots:
+        plt.show()
+    plt.gcf().clear()
+    plt.clf()
+    plt.cla()
+    plt.close()
 
     time_stop = time.perf_counter()
     print("Time elapsed (sec) = {diff:.1f}".format(diff=time_stop-time_start))
+    print()
     ########################################
+    print('#'*80)
     print("""`important_features2`, `df_features4`:
     `df_features4` is a view into (not a copy) of `df_features3` with only
     `important_features2`. Feature importance is the normalized reduction
@@ -1757,7 +1796,6 @@ def create_pipeline_model(
     The Spearman rank correlation accommodates non-linear features.
     The pair plot is a scatter matrix plot of columns vs each other.
     """)
-    path_plot_dir = os.path.join(path_data_dir, 'plot_model')
 
     # Notes:
     # * `size_sub` for computing correlations should be <= 1e3 else runtime is long.
@@ -1777,7 +1815,12 @@ def create_pipeline_model(
     plt.savefig(
         os.path.join(path_plot_dir, 'model_clustermap.png'),
         bbox_inches='tight', dpi=300)
-    plt.show()
+    if show_plots:
+        plt.show()
+    plt.gcf().clear()
+    plt.clf()
+    plt.cla()
+    plt.close()
 
     print(("Pairplot of target, '{target}', top 5 important features, buyer_retrate_gt01:").format(
             target=target))
@@ -1800,10 +1843,15 @@ def create_pipeline_model(
     plt.savefig(
         os.path.join(path_plot_dir, 'model_pairplot.png'),
         bbox_inches='tight', dpi=300)
-    plt.show()
+    if show_plots:
+        plt.show()
+    plt.gcf().clear()
+    plt.clf()
+    plt.cla()
+    plt.close()
 
     print("Summarize top 5 important features:")
-    print(df_features4[important_features2[:5]].describe(percentiles=percentiles, include='all'))
+    print(df_features4[important_features2[:5]].describe(include='all'))
     print()
     print("First 5 records for top 5 important features:")
     print(df_features4[important_features2[:5]].head())
@@ -1829,11 +1877,18 @@ def create_pipeline_model(
         plt.xlabel("Feature value, '{ftr}'".format(ftr=col))
         plt.ylabel('Number of feature values')
         plt.legend(loc='upper left')
-        plt.show()
+        if show_plots:
+            plt.show()
+        plt.gcf().clear()
+        plt.clf()
+        plt.cla()
+        plt.close()
 
     time_stop = time.perf_counter()
     print("Time elapsed (sec) = {diff:.1f}".format(diff=time_stop-time_start))
+    print()
     ########################################
+    print('#'*80)
     print("""Tune model hyperparameters by optimizing the model score
     with cross validation. Model scores are R^2,
     the coefficient of determination.
@@ -1881,11 +1936,21 @@ def create_pipeline_model(
     plt.xlabel("Number of estimators")
     plt.ylabel("Model score")
     plt.legend(loc='lower left')
-    plt.show()
+    plt.savefig(
+        os.path.join(path_plot_dir, 'model_tune_nestimators.png'),
+        bbox_inches='tight', dpi=300)
+    if show_plots:
+        plt.show()
+    plt.gcf().clear()
+    plt.clf()
+    plt.cla()
+    plt.close()
 
     time_stop = time.perf_counter()
     print("Time elapsed (sec) = {diff:.1f}".format(diff=time_stop-time_start))
+    print()
     ########################################
+    print('#'*80)
     print("""Test significance of predictions by shuffling the target values.
     Model scores are r^2, the coefficient of determination.
     """)
@@ -1894,7 +1959,7 @@ def create_pipeline_model(
 
     # Calculate significance of score.
     estimator = sk_ens.ExtraTreesRegressor(n_estimators=n_estimators, n_jobs=-1)
-    demo.utils.utils.calc_score_pvalue(
+    utils.utils.calc_score_pvalue(
         estimator=estimator, df_features=df_features4, ds_target=ds_target,
         n_iter=20, size_sub=None, frac_test=0.2,
         replace=False, show_progress=True, show_plot=True)
@@ -1902,7 +1967,9 @@ def create_pipeline_model(
 
     time_stop = time.perf_counter()
     print("Time elapsed (sec) = {diff:.1f}".format(diff=time_stop-time_start))
+    print()
     ########################################
+    print('#'*80)
     print("""Predict target values with cross-validation,
     plot actual vs predicted and score.
     """)
@@ -1933,8 +2000,7 @@ def create_pipeline_model(
     score = sk_met.r2_score(
         y_true=ds_target, y_pred=ds_predicted)
     print("Model score = {score:.3f}".format(score=score))
-    path_plot_dir = os.path.join(path_data_dir, 'plot_model')
-    demo.utils.utils.plot_actual_vs_predicted(
+    utils.utils.plot_actual_vs_predicted(
         y_true=ds_target.values, y_pred=ds_predicted.values,
         loglog=False, xylims=(-1.1, 1.1),
         path=os.path.join(path_plot_dir, 'model_actual_vs_predicted.jpg'))
@@ -1950,5 +2016,6 @@ def create_pipeline_model(
 
     time_stop = time.perf_counter()
     print("Time elapsed (sec) = {diff:.1f}".format(diff=time_stop-time_start))
+    print()
     ########################################
     return None

@@ -552,7 +552,7 @@ def plot_actual_vs_predicted(
     plt.ylim(y_pred_extrema)
     plt.legend(loc='upper left', title='values')
     if path is not None:
-        plt.savefig(path)
+        plt.savefig(path, dpi=300)
     plt.show()
     return None
 
