@@ -402,7 +402,7 @@ def create_features(
         # Cumulative count of transactions (yes including current).
         df[col+'_numTransactions'] = df[[col]].groupby(by=col).cumcount().astype(int) + 1
         df[col+'_numTransactions'].fillna(value=1, inplace=True)
-        # Cumulative count of transations that were DealShield-eligible (yes including current).
+        # Cumulative count of transactions that were DealShield-eligible (yes including current).
         df[col+'_numDSEligible1'] = df[[col, 'DSEligible']].groupby(by=col)['DSEligible'].cumsum().astype(int)
         df[col+'_numDSEligible1'].fillna(value=0, inplace=True)
         # Cumulative ratio of transactions that were DealShield-eligible (0=bad, 1=good).
