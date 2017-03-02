@@ -24,7 +24,9 @@ RUN apt-get update -y && \
 #   (http://seaborn.pydata.org/installing.html).
 # * Upgrade beautifulsoup4 and html5lib through pip due to recent deprecations.
 #   http://stackoverflow.com/questions/38447738/beautifulsoup-html5lib-module-object-has-no-attribute-base
-RUN conda install -y jupyter && \
+RUN conda install -y
+        jupyter
+        graphviz && \
     conda install -y -c r \
         r-essentials \
         r-e1071 \
