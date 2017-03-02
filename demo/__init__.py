@@ -25,4 +25,4 @@ __all__ = [
 #     subpackage of `demo`, otherwise an `ImportError` is raised.
 #     If your module needs to import `__version__` into its namespace,
 #     access with `import utils` then `utils.__version__`.
-__version__ = '0.0.0'
+__version__ = '0.0.1'
