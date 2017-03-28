@@ -82,6 +82,7 @@ def main(
             logger.info((here+": Predictions:\n{res}").format(res=res))
         else:
             assert args.cmd == 'api'
+            # TDOO: Use manager.run instead https://github.com/fromzeroedu/flask_blog/blob/master/manage.py
             app.run(port=args.port, debug=app.debug)
     except:
         logger.critical(here+": Failed executing application.", exc_info=True)
