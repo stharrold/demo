@@ -30,16 +30,12 @@ logger = logging.getLogger()
 
 
 def main(
-    features:str,
-    logging_level:str='INFO'
+    args
     ) -> None:
     r"""Top-level script for template application.
 
     Args:
-        features (str): Feature data from which to predict the target(s).
-            Example: features=TODO
-        logging_level (str, optional, 'INFO'): Verbosity of logging level
-            from 'DEBUG' (most) to 'CRITICAL' (least).
+        args (argparse.Namespace): Namespace of arguments.
 
     Returns:
         None
@@ -54,7 +50,7 @@ def main(
         'app-'+metadata['app']+'/'+
         metadata['timestamp'])
     # Set logging level, format, and handlers.
-    logger.setLevel(level=logging_level)
+    logger.setLevel(level=args.logging_level)
     fmt = '"%(asctime)s","%(name)s","%(levelname)s","%(message)s"'
     formatter = logging.Formatter(fmt=fmt)
     formatter.converter = time.gmtime
@@ -71,15 +67,22 @@ def main(
     logger.info(here+": Log format: {fmt}".format(fmt=fmt.replace('\"', '\'')))
     logger.info(here+": Log date format: ISO 8601, UTC")
     frame = inspect.currentframe()
-    (args, *_, values) = inspect.getargvalues(frame)
-    logger.info(here+": Argument values: {args_values}".format(
-        args_values=[(arg, values[arg]) for arg in sorted(args)]))
+    (iargs, *_, ivalues) = inspect.getargvalues(frame)
+    logger.info(here+": Argument values: {iargs_ivalues}".format(
+        iargs_ivalues=[(arg, ivalues[arg]) for arg in sorted(iargs)]))
     logger.info(here+": Version = {version}".format(version=demo.__version__))
     # Execute application.
     logger.info(here+": Executing application.")
+    import pdb; pdb.set_trace()
     try:
-        app_ret = demo.app_api.api.predict(features=features)
-        logger.info((here+": Returned value: {app_ret}").format(app_ret=app_ret))
+        if args.cmd == 'train':
+            res = demo.app_api.train()
+        elif args.cmd == 'predict':
+            res = demo.app_api.predict(features=args.features)
+            logger.info((here+": Predictions:\n{res}").format(res=res))
+        else:
+            assert args.cmd == 'api'
+            app.run(port=args.port, debug=app.debug)
     except:
         logger.critical(here+": Failed executing application.", exc_info=True)
     # Close log file.
@@ -93,17 +96,17 @@ if __name__ == '__main__':
     #     * Two-word arguments are separated with an underscore so that the
     #       arguments become valid Python variables when parsed.
     #     * Arguments are checked within the `main` function.
+    # TODO: Use a Web Server Gateway Interface for deployment
+    #     http://flask.pocoo.org/docs/0.12/deploying/#deployment
     # Define defaults.
-    defaults = {'logging_level': 'INFO'}
+    defaults = {
+        'logging_level': 'INFO',
+        'api': {
+            'port': 9000,
+            'debug': False}}
     # Parse input arguments and check.
     parser = argparse.ArgumentParser(
         description="Predictive application with an API.")
-    parser.add_argument(
-        "--features",
-        required=True,
-        type=str,
-        help=("Features from which to predict the target(s)." +
-              "Example: TODO"))
     parser.add_argument(
         "--logging_level",
         required=False,
@@ -113,7 +116,36 @@ if __name__ == '__main__':
         help=("Verbosity of logging level from 'DEBUG' (most) to " +
               "'CRITICAL' (least). Default: {default}").format(
               default=defaults['logging_level']))
+    subparsers = parser.add_subparsers(dest='cmd')
+    parser_train = subparsers.add_parser(
+        'train',
+        help="Train (or retrain) the model.")
+    parser_predict = subparsers.add_parser(
+        'predict',
+        help="Predict target(s) from features.")
+    parser_predict.add_argument(
+        "--features",
+        required=True,
+        type=str,
+        help=("Features as JSON from which to predict the target(s)." +
+              "Example: {ftrs}".format(
+                ftrs='{"sl": {"0":5.7, "1":6.9}, "sw": {"0":4.4, "1":3.1}, "pl": {"0":1.5, "1":4.9}, "pw": {"0":0.4, "1":1.5}}')))
+    parser_api = subparsers.add_parser(
+        'api',
+        help="Serve the predictive model with a RESTful API.")
+    parser_api.add_argument(
+        '--port',
+        required=False,
+        type=int,
+        default=defaults['api']['port'],
+        help="Port on which to serve the API. Default: {default}".format(
+            default=defaults['api']['port']))
+    parser_api.add_argument(
+        '--debug',
+        required=False,
+        type=bool,
+        default=defaults['api']['debug'],
+        help="Flag to reload code and show debugger. Default: {default}".format(
+            default=defaults['api']['debug']))
     args = parser.parse_args()
-    main(
-        features=args.features,
-        logging_level=args.logging_level)
+    main(args)
