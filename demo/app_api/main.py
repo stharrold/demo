@@ -97,7 +97,7 @@ if __name__ == '__main__':
     defaults = {'logging_level': 'INFO'}
     # Parse input arguments and check.
     parser = argparse.ArgumentParser(
-        description="Demo application with an API.")
+        description="Predictive application with an API.")
     parser.add_argument(
         "--features",
         required=True,
