@@ -11,6 +11,7 @@ import inspect
 import logging
 import os
 import pickle
+import subprocess
 import sys
 import tempfile
 import time
@@ -94,15 +95,11 @@ def main(
         else:
             logger.info(here+": Serving API.")
             assert args.cmd == 'api'
-            manager = flask_script.Manager(demo.app_api.api.app)
-            manager.add_command(
-                'runserver',
-                flask_script.Server(
-                    use_debugger=args.debug,
-                    use_reloader=args.debug,
-                    host='0.0.0.0',
-                    port=args.port))
-            manager.run()
+            cmd = [
+                'python',
+                'demo/app_api/api.py',
+                'runserver']
+            subprocess.run(args=cmd, check=True)
     except:
         logger.critical(here+": Failed executing application.", exc_info=True)
     # Close log file.

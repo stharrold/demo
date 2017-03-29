@@ -16,6 +16,7 @@ import tempfile
 import time
 # Import installed packages.
 import flask
+import flask_script
 import pandas as pd
 # Import local packages as top-level script.
 sys.path.insert(0, os.path.curdir)
@@ -32,7 +33,16 @@ __all__ = ['predict']
 logger = logging.getLogger(__name__)
 # Configure app following https://github.com/fromzeroedu/flask_blog/blob/master/__init__.py
 app = flask.Flask(__name__)
-app.config.from_object('settings')
+# TODO: use app.config.from_file?
+# app.config.from_object('settings')
+manager = flask_script.Manager(app)
+manager.add_command(
+    'runserver',
+    flask_script.Server(
+        use_debugger=True,
+        use_reloader=True,
+        host='0.0.0.0',
+        port='5000'))
 # Load pickled model.
 # TODO: Use cPickle for speed.
 # TODO: Don't hardcode location of pickle files in both main.py and api.py
@@ -61,9 +71,13 @@ def predict():
         demo.predict.predict
 
     """
-    features = flask.request.get_json(force=True)
-    preds = demo.predict.predict(
+    features = json.dumps(flask.request.get_json(force=True))
+    preds = demo.app_api.predict.predict(
         features=features,
         model=model)
     res = flask.jsonify(results=preds)
     return res
+
+
+if __name__ == '__main__':
+    manager.run()
