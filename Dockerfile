@@ -36,6 +36,7 @@ RUN pip install --upgrade pip && \
         astroML \
         astroML_addons \
         fastcluster \
+        flask-script \
         geopy \
         seaborn && \
     pip install --upgrade \

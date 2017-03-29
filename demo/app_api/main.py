@@ -15,6 +15,8 @@ import sys
 import tempfile
 import time
 # Import installed packages.
+import flask
+import flask_script
 # Import local packages as top-level script.
 sys.path.insert(0, os.path.curdir)
 import demo
@@ -74,6 +76,7 @@ def main(
     logger.info(here+": Version = {version}".format(version=demo.__version__))
     # Execute application.
     logger.info(here+": Executing application.")
+    # TODO: Don't hardcode location of pickle files in both main.py and api.py
     path_pkl = os.path.join(os.path.abspath(os.path.curdir), r'demo/app_api/pkl')
     try:
         if args.cmd == 'train':
@@ -89,15 +92,17 @@ def main(
             res = demo.app_api.predict.predict(features=args.features, model=model)
             logger.info((here+": Predictions:\n{res}").format(res=res))
         else:
-            # Load pickled model.
-            # TODO: Use cPickle for speed.
-            path_model = os.path.join(path_pkl, 'model.pkl')
-            with open(path_model, mode='rb') as fobj:
-                model = pickle.load(file=fobj)
             logger.info(here+": Serving API.")
             assert args.cmd == 'api'
-            # TDOO: Use manager.run instead https://github.com/fromzeroedu/flask_blog/blob/master/manage.py
-            app.run(port=args.port, debug=app.debug)
+            manager = flask_script.Manager(demo.app_api.api.app)
+            manager.add_command(
+                'runserver',
+                flask_script.Server(
+                    use_debugger=args.debug,
+                    use_reloader=args.debug,
+                    host='0.0.0.0',
+                    port=args.port))
+            manager.run()
     except:
         logger.critical(here+": Failed executing application.", exc_info=True)
     # Close log file.
@@ -117,7 +122,7 @@ if __name__ == '__main__':
     defaults = {
         'logging_level': 'INFO',
         'api': {
-            'port': 9000,
+            'port': 5000,
             'debug': False}}
     # Parse input arguments and check.
     parser = argparse.ArgumentParser(

@@ -9,6 +9,7 @@ r"""Train model for API.
 import inspect
 import json
 import logging
+import os
 import pickle
 # Import installed packages.
 import matplotlib.pyplot as plt
@@ -56,12 +57,15 @@ def train(
     (args, *_, values) = inspect.getargvalues(frame)
     logger.info(here+": Argument values: {args_values}".format(
         args_values=[(arg, values[arg]) for arg in sorted(args)]))
-    # Parse the JSON features, order the columns, and predict.
+    # Train the model, report, and serialize to disk.
     # TODO: Pickle the column order.
     iris = sk_ds.load_iris()
     X_train, X_test, y_train, y_test = sk_cv.train_test_split(iris.data, iris.target)
     model = sk_en.RandomForestClassifier(n_estimators=100, n_jobs=2)
     model.fit(X_train, y_train)
     logger.info(here+": Classification report:\n{rep}".format(
-        rep=sk_me.classification_report(y_test, rfc.predict(X_test))))
+        rep=sk_me.classification_report(y_test, model.predict(X_test))))
+    path_model = os.path.join(path, 'model.pkl')
+    with open(path_model, mode='wb') as fobj:
+        pickle.dump(obj=model, file=fobj)
     return None
