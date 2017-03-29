@@ -8,6 +8,7 @@ r"""Application demos.
 # Import standard packages.
 # Import installed packages.
 # Import local packages.
+from . import app_api
 from . import app_predict
 from . import app_template
 from . import utils
@@ -15,6 +16,7 @@ from . import utils
 
 # Define package exports
 __all__ = [
+    'app_api',
     'app_predict',
     'app_template',
     'utils']
