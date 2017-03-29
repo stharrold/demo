@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-r"""Application API.
+r"""Predict from model for API.
 
 """
 
@@ -11,6 +11,7 @@ import json
 import logging
 # Import installed packages.
 import matplotlib.pyplot as plt
+import pandas as pd
 import seaborn as sns
 # Import local packages.
 from .. import utils
@@ -31,22 +32,15 @@ plt.switch_backend('agg')
 sns.set()
 
 
-# Define globals.
-# Load pickled model.
-# TODO: Use cPickle for speed.
-path_pkl = os.path.join(os.path.abspath(os.path.curdir), r'demo/app_api/pkl')
-path_model = os.path.join(path_app, 'model.pkl')
-with open(path_model, mode='rb') as fobj:
-    model = pickle.load(file=fobj)
-
-
 def predict(
-    features:str):
+    features:str,
+    model):
     r"""Predict the target(s) from the features.
 
     Args:
         features (str): Features as JSON from which to predict the target(s).
             Example: '{"sl": {"0":5.7, "1":6.9}, "sw": {"0":4.4, "1":3.1}, "pl": {"0":1.5, "1":4.9}, "pw": {"0":0.4, "1":1.5}}'
+        model: Trained model from scikit-learn.
 
     Returns:
         preds (str): Predicted target(s).

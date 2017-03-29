@@ -27,15 +27,6 @@ import demo
 __all__ = ['make_predict']
 
 
-# Define globals.
-path_app = os.path.join(os.path.abspath(os.path.curdir), r'demo/app_api')
-path_model = os.path.join(path_app, 'model.pkl')
-with open(path_model, mode='rb') as fobj:
-    model = pickle.load(file=fobj)
-# TODO: path_cols
-# TODO: main --train calls train.
-# TODO: main --predict calls predict. args: features
-# TODO: main --api serves api. args: port, debug.
 app = flask.Flask(__name__)
 
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-r"""Application API.
+r"""Train model for API.
 
 """
 
@@ -9,15 +9,22 @@ r"""Application API.
 import inspect
 import json
 import logging
+import pickle
 # Import installed packages.
 import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
 import seaborn as sns
+import sklearn.datasets as sk_ds
+import sklearn.ensemble as sk_en
+import sklearn.cross_validation as sk_cv
+import sklearn.metrics as sk_me
 # Import local packages.
 from .. import utils
 
 
 # Define module exports:
-__all__ = ['predict']
+__all__ = ['train']
 
 
 # Define state settings and globals.
@@ -31,25 +38,16 @@ plt.switch_backend('agg')
 sns.set()
 
 
-# Define globals.
-# Load pickled model.
-# TODO: Use cPickle for speed.
-path_pkl = os.path.join(os.path.abspath(os.path.curdir), r'demo/app_api/pkl')
-path_model = os.path.join(path_app, 'model.pkl')
-with open(path_model, mode='rb') as fobj:
-    model = pickle.load(file=fobj)
-
-
-def predict(
-    features:str):
+def train(
+    path:str):
     r"""Predict the target(s) from the features.
 
     Args:
-        features (str): Features as JSON from which to predict the target(s).
-            Example: '{"sl": {"0":5.7, "1":6.9}, "sw": {"0":4.4, "1":3.1}, "pl": {"0":1.5, "1":4.9}, "pw": {"0":0.4, "1":1.5}}'
+        path (str): Directory path to store the pickle files.
+            Example: os.path.join(os.path.abspath(os.path.curdir), r'demo/app_api/pkl')
 
     Returns:
-        preds (str): Predicted target(s).
+        None
 
     """
     # Define 'here' for logger and log arguments passed.
@@ -60,9 +58,10 @@ def predict(
         args_values=[(arg, values[arg]) for arg in sorted(args)]))
     # Parse the JSON features, order the columns, and predict.
     # TODO: Pickle the column order.
-    data = pd.DataFrame.from_dict(json.loads(features))
-    cols = ['sl', 'sw', 'pl', 'pw']
-    preds = pd.DataFrame(
-        data=model.predict(data[cols].values),
-        index=data.index).to_json()
-    return preds
+    iris = sk_ds.load_iris()
+    X_train, X_test, y_train, y_test = sk_cv.train_test_split(iris.data, iris.target)
+    model = sk_en.RandomForestClassifier(n_estimators=100, n_jobs=2)
+    model.fit(X_train, y_train)
+    logger.info(here+": Classification report:\n{rep}".format(
+        rep=sk_me.classification_report(y_test, rfc.predict(X_test))))
+    return None

@@ -10,6 +10,7 @@ import argparse
 import inspect
 import logging
 import os
+import pickle
 import sys
 import tempfile
 import time
@@ -73,14 +74,27 @@ def main(
     logger.info(here+": Version = {version}".format(version=demo.__version__))
     # Execute application.
     logger.info(here+": Executing application.")
-    import pdb; pdb.set_trace()
+    path_pkl = os.path.join(os.path.abspath(os.path.curdir), r'demo/app_api/pkl')
     try:
         if args.cmd == 'train':
-            res = demo.app_api.train()
+            logger.info(here+": Training.")
+            demo.app_api.train.train(path=path_pkl)
         elif args.cmd == 'predict':
-            res = demo.app_api.predict(features=args.features)
+            # Load pickled model.
+            # TODO: Use cPickle for speed.
+            path_model = os.path.join(path_pkl, 'model.pkl')
+            with open(path_model, mode='rb') as fobj:
+                model = pickle.load(file=fobj)
+            logger.info(here+": Predicting.")
+            res = demo.app_api.predict.predict(features=args.features, model=model)
             logger.info((here+": Predictions:\n{res}").format(res=res))
         else:
+            # Load pickled model.
+            # TODO: Use cPickle for speed.
+            path_model = os.path.join(path_pkl, 'model.pkl')
+            with open(path_model, mode='rb') as fobj:
+                model = pickle.load(file=fobj)
+            logger.info(here+": Serving API.")
             assert args.cmd == 'api'
             # TDOO: Use manager.run instead https://github.com/fromzeroedu/flask_blog/blob/master/manage.py
             app.run(port=args.port, debug=app.debug)
